@@ -9,7 +9,7 @@ int main()
 
 	if (vulkan_library == nullptr)
 	{
-		std::cout << "failed to load vulkan library!! \n";
+		std::cout << "Failed to load vulkan library!! \n";
 	}
 
 	system("pause");
