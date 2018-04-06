@@ -95,18 +95,19 @@ int InitVulkan()
 
 	if (vkLibrary)
 	{
-		Vulkan_Functions.vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)GetProcAddress(vkLibrary, "vkGetInstanceProcAddr");
+		Vulkan_Functions.vkGetInstanceProcAddr = 
+			(PFN_vkGetInstanceProcAddr)GetProcAddress(vkLibrary, "vkGetInstanceProcAddr"); // NOTE(KAI): done (DAY 1)
 		Vulkan_Functions.vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)GetProcAddress(vkLibrary, "vkGetDeviceProcAddr");
 	}
 
-	if (!Vulkan_Functions.vkGetInstanceProcAddr || !Vulkan_Functions.vkGetDeviceProcAddr)
+	if (!Vulkan_Functions.vkGetInstanceProcAddr || !Vulkan_Functions.vkGetDeviceProcAddr) // NOTE(KAI): done (DAY 1)
 	{
 		return NULL;
 	}
 
-	Vulkan_Functions.vkCreateInstance = (PFN_vkCreateInstance)GetFunctionPointer(NULL, "vkCreateInstance");
+	Vulkan_Functions.vkCreateInstance = (PFN_vkCreateInstance)GetFunctionPointer(NULL, "vkCreateInstance"); // NOTE(KAI): done (DAY 1)
 
-	if (CreateVulkanInstance() != VK_SUCCESS)
+	if (CreateVulkanInstance() != VK_SUCCESS) // NOTE(KAI): done (DAY 1)
 	{
 		std::cout << "Failed to create vulkan instance\n";
 		return NULL;
