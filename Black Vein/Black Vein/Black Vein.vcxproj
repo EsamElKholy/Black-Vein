@@ -90,6 +90,9 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>VK_NO_PROTOTYPES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -127,12 +130,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="VulkanFunctionLoader.cpp" />
-    <ClCompile Include="VulkanFunctions.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="VulkanFunctionLoader.h" />
-    <ClInclude Include="VulkanFunctions.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
