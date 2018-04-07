@@ -33,5 +33,8 @@
  ==> created a logical device that "vkDevice" that will be responsible for directing graphics commands to the hardware
  ==> added a function that gives an error message and exit the program whenever an error occures and used it instead of "cout"
 
-
+ ==> created a command buffer pool to allocate command buffers from it
+ ==> each queue family can have 1 command buffer pool
+ ==> we will use command buffers to record our orders for the GPU to do certain operations, i.e: draw, change line width
+ 
 */
