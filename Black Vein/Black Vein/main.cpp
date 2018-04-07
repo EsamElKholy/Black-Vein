@@ -33,6 +33,13 @@ struct VK_Data
 static VK_Func Vulkan_Functions;
 static VK_Data Vulkan_Data;
 
+void ExitOnError(const char *msg) // NOTE(KAI): done (DAY 2)
+{
+	MessageBox(NULL, msg, NULL, MB_ICONERROR);
+	std::cout << msg;
+
+	exit(EXIT_FAILURE);
+}
 PFN_vkVoidFunction GetFunctionPointer(VkInstance instance, char *name)	// NOTE(KAI): done (DAY 1)
 {
 	PFN_vkVoidFunction result = 0;
@@ -86,7 +93,7 @@ VkResult CreateVulkanDevice() // NOTE(KAI): done (DAY 2)
 
 	if (result != VK_SUCCESS)
 	{
-		std::cout << "Couldn't get the number of physical devices\n";
+		ExitOnError("Couldn't get the number of physical devices\n");
 
 		return result;
 	}
@@ -99,7 +106,7 @@ VkResult CreateVulkanDevice() // NOTE(KAI): done (DAY 2)
 	
 	if (result != VK_SUCCESS)
 	{
-		std::cout << "Couldn't get a list of physical devices\n";
+		ExitOnError("Couldn't get a list of physical devices\n");
 
 		return result;
 	}
@@ -165,7 +172,8 @@ int InitVulkan()
 
 	if (CreateVulkanInstance() != VK_SUCCESS) // NOTE(KAI): done (DAY 1)
 	{
-		std::cout << "Failed to create vulkan instance\n";
+		ExitOnError("Failed to create vulkan instance\n");
+		
 		return NULL;
 	}
 
@@ -177,7 +185,7 @@ int InitVulkan()
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
-		std::cout << "Failed to create vulkan physical device\n";
+		ExitOnError("Failed to create vulkan physical device\n");
 		
 		return NULL;
 	}
@@ -207,9 +215,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR cmdLine
 
 	if (!InitVulkan())
 	{
-		std::cout << "Failed to initialize vulkan\n";
-
-		system("pause");
+		ExitOnError("Failed to initialize vulkan\n");
 		
 		return 0;
 	}
@@ -250,12 +256,12 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR cmdLine
 		}
 		else
 		{
-			std::cout << "Couldn't create Window\n";
+			ExitOnError("Couldn't create Window\n");
 		}
 	}
 	else
 	{
-		std::cout << "Couldn't register window class\n";
+		ExitOnError("Couldn't register window class\n");
 	}
 
 	system("pause");

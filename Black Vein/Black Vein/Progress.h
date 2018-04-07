@@ -13,8 +13,8 @@
 
 
 // Day 1:
- ==> created a vulkan instance
  ==> refrences: vulkan tutorial on: https://vulkan.lunarg.com/doc/sdk/1.1.70.1/windows/tutorial/html/01-init_instance.html
+ ==> created a vulkan instance
 
  ==> vulkan instance is basically a connection between the application and the vulkan library
  ==> creating the instance is the first step in building a vulkan application
@@ -26,10 +26,12 @@
 
 
 // Day 2:
+
+ ==> refrences: vulkan tutorial on: https://vulkan.lunarg.com/doc/sdk/1.1.70.1/windows/tutorial/html/
  ==> got a list of physical devices and choose the first one as a default (my pc only has 1 anyway)
  ==> got a list of queue families and chose the one the can do graphics operations "VK_QUEUE_GRAPHICS_BIT"
  ==> created a logical device that "vkDevice" that will be responsible for directing graphics commands to the hardware
-
+ ==> added a function that gives an error message and exit the program whenever an error occures and used it instead of "cout"
 
 
 */
