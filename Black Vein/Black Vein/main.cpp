@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <vulkan.h>
 #include <iostream>
+#include <vector>
 
 struct VK_Func
 {
@@ -9,7 +10,7 @@ struct VK_Func
 	PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr;
 	PFN_vkCreateInstance vkCreateInstance; // NOTE(KAI): done (DAY 1)
 	PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices;
-	PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
+	//PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
 	PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties;
 	PFN_vkCreateDevice vkCreateDevice;
 	PFN_vkDestroyDevice vkDestroyDevice;
@@ -17,15 +18,20 @@ struct VK_Func
 	PFN_vkQueueWaitIdle vkQueueWaitIdle;
 };
 
-static VkInstance Vulkan_Instance; // NOTE(KAI): done (DAY 1) 
+struct VK_Data
+{
+	VkInstance Instance;	// NOTE(KAI): done (DAY 1) 
+	std::vector<VkPhysicalDevice> PhysicalDevices;
 
+	uint32_t QueueFamilyPropertiesCount;
+	std::vector<VkQueueFamilyProperties> QueueFamilyProperties;
 
-static VkDevice Vulkan_Device;
+	VkPhysicalDeviceProperties DeviceProperties;
+	VkDevice Device;
+};
+
 static VK_Func Vulkan_Functions;
-static VkPhysicalDevice Vulkan_PhysicalDevice;
-static VkQueueFamilyProperties Vulkan_QueueFamilyProperties;
-static VkPhysicalDeviceProperties Vulkan_DeviceProperties;
-
+static VK_Data Vulkan_Data;
 
 PFN_vkVoidFunction GetFunctionPointer(VkInstance instance, char *name)	// NOTE(KAI): done (DAY 1)
 {
@@ -60,32 +66,81 @@ VkResult CreateVulkanInstance() // NOTE(KAI): done (DAY 1)
 	instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 	instanceInfo.pApplicationInfo = &appInfo;
 
-	result = Vulkan_Functions.vkCreateInstance(&instanceInfo, NULL, &Vulkan_Instance);
+	result = Vulkan_Functions.vkCreateInstance(&instanceInfo, NULL, &Vulkan_Data.Instance);
 
 	return result;
 }
 
-VkResult CreateVulkanPhysicalDevice()
+///*NOTE(KA)*///
+/// 1- Get physical devices
+/// 2- Get queue family(s)
+/// 3- Get Logical device
+VkResult CreateVulkanDevice() // NOTE(KAI): done (DAY 2)
 {
 	VkResult result;
 
+	// NOTE(KAI): Getting a list of physical devices
 	uint32_t deviceCount;
-	result = Vulkan_Functions.vkEnumeratePhysicalDevices(Vulkan_Instance, &deviceCount, &Vulkan_PhysicalDevice);
+
+	result = Vulkan_Functions.vkEnumeratePhysicalDevices(Vulkan_Data.Instance, &deviceCount, NULL);
 
 	if (result != VK_SUCCESS)
 	{
+		std::cout << "Couldn't get the number of physical devices\n";
+
 		return result;
 	}
 
-	Vulkan_Functions.vkGetPhysicalDeviceProperties(Vulkan_PhysicalDevice, &Vulkan_DeviceProperties);
+	Vulkan_Data.PhysicalDevices.resize(deviceCount);
 
-	uint32_t queueFamilyPropertyCount;
-	Vulkan_Functions.vkGetPhysicalDeviceQueueFamilyProperties(Vulkan_PhysicalDevice, &queueFamilyPropertyCount, &Vulkan_QueueFamilyProperties);
+	result = Vulkan_Functions.vkEnumeratePhysicalDevices(Vulkan_Data.Instance
+														, &deviceCount
+														, Vulkan_Data.PhysicalDevices.data());
+	
+	if (result != VK_SUCCESS)
+	{
+		std::cout << "Couldn't get a list of physical devices\n";
+
+		return result;
+	}
+
+	//
+
+	VkDeviceQueueCreateInfo queueInfo = {};
+
+	// NOTE(KAI): Getting a list of queue family properties
+	Vulkan_Functions.vkGetPhysicalDeviceQueueFamilyProperties(Vulkan_Data.PhysicalDevices[0]
+															, &Vulkan_Data.QueueFamilyPropertiesCount
+															, NULL);
+
+	Vulkan_Data.QueueFamilyProperties.resize(Vulkan_Data.QueueFamilyPropertiesCount);
+
+	Vulkan_Functions.vkGetPhysicalDeviceQueueFamilyProperties(Vulkan_Data.PhysicalDevices[0]
+															, &Vulkan_Data.QueueFamilyPropertiesCount
+															, Vulkan_Data.QueueFamilyProperties.data());
+
+	// NOTE(KAI): Getting the queue family for the graphics operations
+	for (size_t i = 0; i < Vulkan_Data.QueueFamilyProperties.size(); i++)
+	{
+		if (Vulkan_Data.QueueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+		{
+			queueInfo.queueFamilyIndex = i;
+
+			break;
+		}
+	}
+
+	float queuePriorities[1] = { 1.0 };
+	queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	queueInfo.pQueuePriorities = queuePriorities;
+	queueInfo.queueCount = 1;
 
 	VkDeviceCreateInfo deviceInfo = {};
 	deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+	deviceInfo.queueCreateInfoCount = 1;
+	deviceInfo.pQueueCreateInfos = &queueInfo;
 
-	Vulkan_Functions.vkCreateDevice(Vulkan_PhysicalDevice, &deviceInfo, NULL, &Vulkan_Device);
+	Vulkan_Functions.vkCreateDevice(Vulkan_Data.PhysicalDevices[0], &deviceInfo, NULL, &Vulkan_Data.Device);
 	return result;
 }
 
@@ -97,7 +152,8 @@ int InitVulkan()
 	{
 		Vulkan_Functions.vkGetInstanceProcAddr = 
 			(PFN_vkGetInstanceProcAddr)GetProcAddress(vkLibrary, "vkGetInstanceProcAddr"); // NOTE(KAI): done (DAY 1)
-		Vulkan_Functions.vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)GetProcAddress(vkLibrary, "vkGetDeviceProcAddr");
+		Vulkan_Functions.vkGetDeviceProcAddr = 
+			(PFN_vkGetDeviceProcAddr)GetProcAddress(vkLibrary, "vkGetDeviceProcAddr"); // NOTE(KAI): done (DAY 2)
 	}
 
 	if (!Vulkan_Functions.vkGetInstanceProcAddr || !Vulkan_Functions.vkGetDeviceProcAddr) // NOTE(KAI): done (DAY 1)
@@ -113,18 +169,20 @@ int InitVulkan()
 		return NULL;
 	}
 
-	Vulkan_Functions.vkEnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices)GetFunctionPointer(Vulkan_Instance, "vkEnumeratePhysicalDevices");
-	Vulkan_Functions.vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)GetFunctionPointer(Vulkan_Instance, "vkGetPhysicalDeviceProperties");
-	Vulkan_Functions.vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)GetFunctionPointer(Vulkan_Instance, "vkGetPhysicalDeviceProperties");
-	Vulkan_Functions.vkGetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)GetFunctionPointer(Vulkan_Instance, "vkGetPhysicalDeviceQueueFamilyProperties");
-	Vulkan_Functions.vkCreateDevice = (PFN_vkCreateDevice)GetFunctionPointer(Vulkan_Instance, "vkCreateDevice");
+	// NOTE(KAI): done (DAY 2)
+	Vulkan_Functions.vkEnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices)GetFunctionPointer(Vulkan_Data.Instance, "vkEnumeratePhysicalDevices");
+	//Vulkan_Functions.vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)GetFunctionPointer(Vulkan_Data.Instance, "vkGetPhysicalDeviceProperties");
+	Vulkan_Functions.vkGetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)GetFunctionPointer(Vulkan_Data.Instance, "vkGetPhysicalDeviceQueueFamilyProperties");
+	Vulkan_Functions.vkCreateDevice = (PFN_vkCreateDevice)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateDevice");
 
-	if (CreateVulkanPhysicalDevice() != VK_SUCCESS)
+	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
 		std::cout << "Failed to create vulkan physical device\n";
+		
+		return NULL;
 	}
 
-	return NULL;
+	return 1;
 }
 
 LRESULT CALLBACK WindowCallBack(HWND window, UINT message, WPARAM wParam, LPARAM lParam)

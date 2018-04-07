@@ -24,4 +24,12 @@
 ==> the vulkan loader functions themselves have to be loaded from the dll using the regular dll loading function "LoadLibrary"
 
 
+
+// Day 2:
+ ==> got a list of physical devices and choose the first one as a default (my pc only has 1 anyway)
+ ==> got a list of queue families and chose the one the can do graphics operations "VK_QUEUE_GRAPHICS_BIT"
+ ==> created a logical device that "vkDevice" that will be responsible for directing graphics commands to the hardware
+
+
+
 */
