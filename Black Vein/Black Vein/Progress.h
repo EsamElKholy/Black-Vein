@@ -37,4 +37,23 @@
  ==> each queue family can have 1 command buffer pool
  ==> we will use command buffers to record our orders for the GPU to do certain operations, i.e: draw, change line width
  
+ ==> created a surface and connected it to the window
+ ==> create a swapchain that we will use to get the images on the window
+ ==> creating a swapchain involves many steps and most of them are just to fill-out the swapchain info structure
+ ==> the steps are:
+ ===> /// To create the swapchain we need:
+ ===> ///		1- Surface
+ ===> ///		2- Graphics queue index
+ ===> ///		3- Present queue index
+ ===> ///		4- Pixel format
+ ===> ///		5- Fill out swapchain info structure:
+ ===> ///			=> Surface capabilities
+ ===> ///			=> Present modes
+ ===> ///			=> Swapchain extents
+ ===> ///			=> Minimum number of images in swapchain
+ ===> ///			=> PreTransform ????
+ ===> ///			=> Composite Alpha flags
+ ===> ///		6- Create Swapchain
+ ===> ///		7- Save Image and image views to use later on
+
 */
