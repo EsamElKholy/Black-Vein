@@ -6,14 +6,14 @@
 
 struct VK_Func
 {
-	PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr; // NOTE(KAI): done (DAY 1)
+	PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr; 
 	PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr;
-	PFN_vkCreateInstance vkCreateInstance; // NOTE(KAI): done (DAY 1)
-	PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices;  // NOTE(KAI): done (DAY 2)
-	PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties;  // NOTE(KAI): done (DAY 2)
-	PFN_vkCreateDevice vkCreateDevice;  // NOTE(KAI): done (DAY 2)
-	PFN_vkCreateCommandPool vkCreateCommandPool; // NOTE(KAI): done (DAY 2)
-	PFN_vkAllocateCommandBuffers vkAllocateCommandBuffers; // NOTE(KAI): done (DAY 2)
+	PFN_vkCreateInstance vkCreateInstance; 
+	PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices;  
+	PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties;  
+	PFN_vkCreateDevice vkCreateDevice;  
+	PFN_vkCreateCommandPool vkCreateCommandPool; 
+	PFN_vkAllocateCommandBuffers vkAllocateCommandBuffers; 
 	PFN_vkGetPhysicalDeviceSurfaceSupportKHR vkGetPhysicalDeviceSurfaceSupportKHR;
 	PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
 	PFN_vkGetPhysicalDeviceSurfaceFormatsKHR vkGetPhysicalDeviceSurfaceFormatsKHR;
@@ -22,6 +22,13 @@ struct VK_Func
 	PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR;
 	PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR;
 	PFN_vkCreateImageView vkCreateImageView;
+	PFN_vkCreateImage vkCreateImage;
+	PFN_vkGetPhysicalDeviceFormatProperties vkGetPhysicalDeviceFormatProperties;
+	PFN_vkGetImageMemoryRequirements vkGetImageMemoryRequirements;
+	PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
+	PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties;
+	PFN_vkAllocateMemory vkAllocateMemory;
+	PFN_vkBindImageMemory vkBindImageMemory;
 
 	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
@@ -34,10 +41,20 @@ struct SwapChainBuffer
 	VkImageView View;
 };
 
+struct DepthBuffer 
+{
+	VkFormat Format;
+	VkImage Image;
+	VkImageView View;
+	VkDeviceMemory Memory;
+};
+
 struct VK_Data
 {
 	VkInstance Instance;	
 	std::vector<VkPhysicalDevice> PhysicalDevices;
+	std::vector<VkPhysicalDeviceProperties> PhysicalDevicesProperties;
+	VkPhysicalDeviceMemoryProperties MemoryProperties;
 
 	uint32_t QueueFamilyPropertiesCount;
 	uint32_t GraphicsQueueFamilyIndex; 
@@ -63,6 +80,9 @@ struct VK_Data
 	VkSwapchainKHR SwapChain;
 	uint32_t SwapChainImageCount;
 	std::vector<SwapChainBuffer> Buffers;
+
+	DepthBuffer Depth;
+
 };
 
 static VK_Func Vulkan_Functions;
@@ -75,6 +95,34 @@ void ExitOnError(const char *msg)
 
 	exit(EXIT_FAILURE);
 } 
+
+/// NOTE(KAI): Taken form vulkan samples (util.cpp) 
+///*NOTE(KAI)*///
+/// 1- Goes through each memory type in the physical device memory properties
+/// 2- Check which of the type bits is avaiable by &ing it with 1, if not then shift the bits to the right by one (???????!!) :/
+/// 3- if the type is available check if it matches the required properties
+/// 4- if found return its index
+bool GetMemoryTypeFromProperties(VK_Data &data, uint32_t typeBits, VkFlags requirements_mask, uint32_t *typeIndex) 
+{
+	// Search memtypes to find first index with those properties
+	for (uint32_t i = 0; i < data.MemoryProperties.memoryTypeCount; i++) 
+	{
+		if ((typeBits & 1) == 1) 
+		{
+			// Type is available, does it match user properties?
+			if ((data.MemoryProperties.memoryTypes[i].propertyFlags & requirements_mask) == requirements_mask) 
+			{
+				*typeIndex = i;
+				return true;
+			}
+		}
+
+		typeBits >>= 1;
+	}
+
+	// No memory types matched, return failure
+	return false;
+}
 
 PFN_vkVoidFunction GetFunctionPointer(VkInstance instance, char *name)	
 {
@@ -201,7 +249,17 @@ VkResult CreateVulkanDevice()
 	deviceInfo.enabledExtensionCount = Vulkan_Data.DeviceExtensionNames.size();
 	deviceInfo.ppEnabledExtensionNames = Vulkan_Data.DeviceExtensionNames.data();
 
+	Vulkan_Data.PhysicalDevicesProperties.resize(Vulkan_Data.PhysicalDevices.size());
+
+	for (size_t i = 0; i < Vulkan_Data.PhysicalDevices.size(); i++)
+	{
+		Vulkan_Functions.vkGetPhysicalDeviceProperties(Vulkan_Data.PhysicalDevices[i], &Vulkan_Data.PhysicalDevicesProperties[i]);
+	}
+
+	Vulkan_Functions.vkGetPhysicalDeviceMemoryProperties(Vulkan_Data.PhysicalDevices[0], &Vulkan_Data.MemoryProperties);
+
 	Vulkan_Functions.vkCreateDevice(Vulkan_Data.PhysicalDevices[0], &deviceInfo, NULL, &Vulkan_Data.Device);
+
 	return result;
 }
 
@@ -585,6 +643,128 @@ VkResult InitSwapChain()
 	return res;
 }
 
+///*NOTE(KAI)*///
+/// To create a depth buffer we need:
+/// 1- image
+/// 2- memory and bind it to the image
+/// 3- image view
+VkResult InitDepthBuffer() 
+{
+	VkResult res;
+
+	VkFormat depthFormat = VK_FORMAT_D16_UNORM;
+	Vulkan_Data.Depth.Format = depthFormat;
+
+	VkImageCreateInfo imageInfo = {};
+	
+	VkFormatProperties formatProps;
+	Vulkan_Functions.vkGetPhysicalDeviceFormatProperties(Vulkan_Data.PhysicalDevices[0], depthFormat, &formatProps);
+	
+	if (formatProps.linearTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+	{
+		imageInfo.tiling = VK_IMAGE_TILING_LINEAR;
+	}
+	else if (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+	{
+		imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	}
+	else
+	{
+		ExitOnError("D16 depth format not supported\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.format = depthFormat;
+	imageInfo.extent.width = Vulkan_Data.Width;
+	imageInfo.extent.height = Vulkan_Data.Height;
+	imageInfo.extent.depth = 1;
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	imageInfo.queueFamilyIndexCount = 0;
+	imageInfo.pQueueFamilyIndices = NULL;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.flags = 0;
+
+	VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = VK_NULL_HANDLE;
+	viewInfo.format = depthFormat;
+	viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+	viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+	viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+	viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
+	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = 1;
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.flags = 0;
+
+	res = Vulkan_Functions.vkCreateImage(Vulkan_Data.Device, &imageInfo, NULL, &Vulkan_Data.Depth.Image);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create depth image\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}	
+
+	VkMemoryRequirements memReq = {};
+	Vulkan_Functions.vkGetImageMemoryRequirements(Vulkan_Data.Device, Vulkan_Data.Depth.Image, &memReq);
+
+	VkMemoryAllocateInfo memoryAllocInfo = {};
+	memoryAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	memoryAllocInfo.allocationSize = memReq.size;
+	bool success = GetMemoryTypeFromProperties(Vulkan_Data
+												, memReq.memoryTypeBits
+												, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+												, &memoryAllocInfo.memoryTypeIndex);
+
+	if (!success)
+	{
+		ExitOnError("Failed to get memory type\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	res = Vulkan_Functions.vkAllocateMemory(Vulkan_Data.Device, &memoryAllocInfo, NULL, &Vulkan_Data.Depth.Memory);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to allocate memory\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	res = Vulkan_Functions.vkBindImageMemory(Vulkan_Data.Device, Vulkan_Data.Depth.Image, Vulkan_Data.Depth.Memory, 0);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to bind memory to image\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	viewInfo.image = Vulkan_Data.Depth.Image;
+	res = Vulkan_Functions.vkCreateImageView(Vulkan_Data.Device, &viewInfo, NULL, &Vulkan_Data.Depth.View);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create image view\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	return res;
+}
+
 int InitVulkan()
 {
 	HMODULE vkLibrary = LoadLibrary("vulkan-1.dll");
@@ -624,7 +804,14 @@ int InitVulkan()
 	Vulkan_Functions.vkCreateSwapchainKHR = (PFN_vkCreateSwapchainKHR)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateSwapchainKHR");
 	Vulkan_Functions.vkGetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)GetFunctionPointer(Vulkan_Data.Instance, "vkGetSwapchainImagesKHR");
 	Vulkan_Functions.vkCreateImageView = (PFN_vkCreateImageView)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateImageView");
-	
+	Vulkan_Functions.vkCreateImage = (PFN_vkCreateImage)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateImage");
+	Vulkan_Functions.vkGetPhysicalDeviceFormatProperties = (PFN_vkGetPhysicalDeviceFormatProperties)GetFunctionPointer(Vulkan_Data.Instance, "vkGetPhysicalDeviceFormatProperties");
+	Vulkan_Functions.vkGetImageMemoryRequirements = (PFN_vkGetImageMemoryRequirements)GetFunctionPointer(Vulkan_Data.Instance, "vkGetImageMemoryRequirements");
+	Vulkan_Functions.vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties)GetFunctionPointer(Vulkan_Data.Instance, "vkGetPhysicalDeviceProperties");
+	Vulkan_Functions.vkGetPhysicalDeviceMemoryProperties = (PFN_vkGetPhysicalDeviceMemoryProperties)GetFunctionPointer(Vulkan_Data.Instance, "vkGetPhysicalDeviceMemoryProperties");
+	Vulkan_Functions.vkAllocateMemory = (PFN_vkAllocateMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkAllocateMemory");
+	Vulkan_Functions.vkBindImageMemory = (PFN_vkBindImageMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkBindImageMemory");
+
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
 		ExitOnError("Failed to create vulkan physical device\n");
@@ -660,6 +847,13 @@ int InitVulkan()
 		return NULL;
 	}
 
+	if (InitDepthBuffer() != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create depth buffer\n");
+
+		return NULL;
+	}
+
 	return 1;
 }
 
@@ -683,6 +877,9 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR cmdLine
 
 	bool isRunning = false;	
 
+	Vulkan_Data.Width = 1280;
+	Vulkan_Data.Height = 720;
+
 	if (RegisterClass(&windowClass))
 	{
 		Vulkan_Data.Window = CreateWindowEx(NULL
@@ -691,8 +888,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR cmdLine
 			, WS_OVERLAPPEDWINDOW | WS_VISIBLE
 			, CW_USEDEFAULT
 			, CW_USEDEFAULT
-			, CW_USEDEFAULT
-			, CW_USEDEFAULT
+			, Vulkan_Data.Width
+			, Vulkan_Data.Height
 			, NULL
 			, NULL
 			, hInstance

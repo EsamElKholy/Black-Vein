@@ -56,4 +56,15 @@
  ===> ///		6- Create Swapchain
  ===> ///		7- Save Image and image views to use later on
 
+
+
+// Day 3
+
+ ==> created a depth buffer
+ ==> depth buffer is made by:
+		1- creating an image
+		2- allocating memory and binding it to the image
+			- while we are allocating the memory we need to know its type
+			- used a function from the samples (util.cpp) that gets the memory type -Still don't understand it-
+		3- creating an image view
 */
