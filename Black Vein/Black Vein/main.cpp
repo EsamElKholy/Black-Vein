@@ -3,6 +3,9 @@
 #include <vulkan.h>
 #include <iostream>
 #include <vector>
+#include <CinderMath.h>
+
+using namespace Cinder::Math;
 
 struct VK_Func
 {
@@ -29,6 +32,11 @@ struct VK_Func
 	PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties;
 	PFN_vkAllocateMemory vkAllocateMemory;
 	PFN_vkBindImageMemory vkBindImageMemory;
+	PFN_vkCreateBuffer vkCreateBuffer;
+	PFN_vkGetBufferMemoryRequirements vkGetBufferMemoryRequirements;
+	PFN_vkMapMemory vkMapMemory;
+	PFN_vkUnmapMemory vkUnmapMemory;
+	PFN_vkBindBufferMemory vkBindBufferMemory;
 
 	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
@@ -47,6 +55,22 @@ struct DepthBuffer
 	VkImage Image;
 	VkImageView View;
 	VkDeviceMemory Memory;
+};
+
+struct BufferData 
+{
+	VkBuffer Buffer;
+	VkDeviceMemory Memory;
+	VkDescriptorBufferInfo BufferInfo;
+};
+
+struct TransformMatrices
+{
+	mat4f MVP;
+	mat4f ModelMat;
+	mat4f ViewMat;
+	mat4f ProjectionMat;
+	mat4f CorrectionMat;
 };
 
 struct VK_Data
@@ -83,6 +107,9 @@ struct VK_Data
 
 	DepthBuffer Depth;
 
+	TransformMatrices Transform;
+
+	BufferData UniformBuffer;
 };
 
 static VK_Func Vulkan_Functions;
@@ -765,6 +792,110 @@ VkResult InitDepthBuffer()
 	return res;
 }
 
+void CalculateMVP(TransformMatrices &transform) 
+{
+	// TODO(KAI): Check if any of these need to be transposed
+	transform.ProjectionMat = Mat4::Perspective(45.0f, 1.0f, 1.0f, 0.1f, 1000.0f);
+	transform.ViewMat = Mat4::LookAt(vec3f(-5, 3, -10), vec3f(), vec3f(0, -1, 0));
+	transform.ModelMat = mat4f();
+
+	// NOTE(KAI): https://matthewwellings.com/blog/the-new-vulkan-coordinate-system/
+	transform.CorrectionMat = mat4f();
+	transform.CorrectionMat[0] = vec4f(1,  0,    0, 0);
+	transform.CorrectionMat[1] = vec4f(0, -1,    0, 0);
+	transform.CorrectionMat[2] = vec4f(0,  0, 0.5f, 0);
+	transform.CorrectionMat[3] = vec4f(0,  0, 0.5f, 1);
+
+	transform.MVP = transform.CorrectionMat * transform.ProjectionMat * transform.ViewMat * transform.ModelMat;
+}
+
+///*NOTE(KAI)*///
+/// To create uniform buffer we need:
+/// 1- The data we will put in the buffer (in this case the MVP matrix)
+/// 2- The buffer
+/// 3- The memory
+/// 4- Put the data in the memory by: mapping the memory, copying the data to the memory then unmaping the memory
+/// 5- bind the memory to the buffer
+VkResult InitUniformBuffer() 
+{
+	CalculateMVP(Vulkan_Data.Transform);
+
+	VkBufferCreateInfo bufferInfo = {};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+	bufferInfo.size = sizeof(Vulkan_Data.Transform.MVP);
+	bufferInfo.queueFamilyIndexCount = 0;
+	bufferInfo.pQueueFamilyIndices = NULL;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	bufferInfo.flags = 0;
+
+	VkResult res = Vulkan_Functions.vkCreateBuffer(Vulkan_Data.Device, &bufferInfo, NULL, &Vulkan_Data.UniformBuffer.Buffer);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create buffer\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	VkMemoryRequirements memReq = {};
+	Vulkan_Functions.vkGetBufferMemoryRequirements(Vulkan_Data.Device, Vulkan_Data.UniformBuffer.Buffer, &memReq);
+
+	VkMemoryAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memReq.size;
+
+	bool success = GetMemoryTypeFromProperties(Vulkan_Data
+											, memReq.memoryTypeBits
+											, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+											, &allocInfo.memoryTypeIndex);
+
+	if (!success)
+	{
+		ExitOnError("Failed to get memory type for buffer memory\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	res = Vulkan_Functions.vkAllocateMemory(Vulkan_Data.Device, &allocInfo, NULL, &Vulkan_Data.UniformBuffer.Memory);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to allocate buffer memory\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	uint8_t *data;
+	res = Vulkan_Functions.vkMapMemory(Vulkan_Data.Device, Vulkan_Data.UniformBuffer.Memory, 0, memReq.size, 0, (void**)&data);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to map buffer memory\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	memcpy(data, &Vulkan_Data.Transform.MVP, sizeof(Vulkan_Data.Transform.MVP));
+
+	Vulkan_Functions.vkUnmapMemory(Vulkan_Data.Device, Vulkan_Data.UniformBuffer.Memory);
+
+	res = Vulkan_Functions.vkBindBufferMemory(Vulkan_Data.Device, Vulkan_Data.UniformBuffer.Buffer, Vulkan_Data.UniformBuffer.Memory, 0);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to bind buffer memory\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	Vulkan_Data.UniformBuffer.BufferInfo.buffer = Vulkan_Data.UniformBuffer.Buffer;
+	Vulkan_Data.UniformBuffer.BufferInfo.offset = 0;
+	Vulkan_Data.UniformBuffer.BufferInfo.range = sizeof(Vulkan_Data.Transform.MVP);
+
+	return res;
+}
+
 int InitVulkan()
 {
 	HMODULE vkLibrary = LoadLibrary("vulkan-1.dll");
@@ -811,6 +942,11 @@ int InitVulkan()
 	Vulkan_Functions.vkGetPhysicalDeviceMemoryProperties = (PFN_vkGetPhysicalDeviceMemoryProperties)GetFunctionPointer(Vulkan_Data.Instance, "vkGetPhysicalDeviceMemoryProperties");
 	Vulkan_Functions.vkAllocateMemory = (PFN_vkAllocateMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkAllocateMemory");
 	Vulkan_Functions.vkBindImageMemory = (PFN_vkBindImageMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkBindImageMemory");
+	Vulkan_Functions.vkCreateBuffer = (PFN_vkCreateBuffer)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateBuffer");
+	Vulkan_Functions.vkGetBufferMemoryRequirements = (PFN_vkGetBufferMemoryRequirements)GetFunctionPointer(Vulkan_Data.Instance, "vkGetBufferMemoryRequirements");
+	Vulkan_Functions.vkMapMemory = (PFN_vkMapMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkMapMemory");
+	Vulkan_Functions.vkUnmapMemory = (PFN_vkUnmapMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkUnmapMemory");
+	Vulkan_Functions.vkBindBufferMemory = (PFN_vkBindBufferMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkBindBufferMemory");
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
@@ -850,6 +986,13 @@ int InitVulkan()
 	if (InitDepthBuffer() != VK_SUCCESS)
 	{
 		ExitOnError("Failed to create depth buffer\n");
+
+		return NULL;
+	}
+
+	if (InitUniformBuffer() != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create uniform buffer\n");
 
 		return NULL;
 	}

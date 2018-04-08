@@ -67,4 +67,13 @@
 			- while we are allocating the memory we need to know its type
 			- used a function from the samples (util.cpp) that gets the memory type -Still don't understand it-
 		3- creating an image view
+ 
+ ==> created a uniform buffer to use to send the MVP matrix to the shaders
+ ==> To create uniform buffer we need:
+ ==> ///	1- The data we will put in the buffer (in this case the MVP matrix)
+ ==> ///	2- The buffer
+ ==> ///	3- The memory
+ ==> ///	4- Put the data in the memory by: mapping the memory, copying the data to the memory then unmaping the memory
+ ==> ///	5- bind the memory to the buffer
+		
 */
