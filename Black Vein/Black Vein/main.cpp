@@ -37,6 +37,8 @@ struct VK_Func
 	PFN_vkMapMemory vkMapMemory;
 	PFN_vkUnmapMemory vkUnmapMemory;
 	PFN_vkBindBufferMemory vkBindBufferMemory;
+	PFN_vkCreateDescriptorSetLayout vkCreateDescriptorSetLayout;
+	PFN_vkCreatePipelineLayout vkCreatePipelineLayout;
 
 	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
@@ -110,6 +112,10 @@ struct VK_Data
 	TransformMatrices Transform;
 
 	BufferData UniformBuffer;
+
+	std::vector<VkDescriptorSetLayout> DescriptorSetLayouts;
+
+	VkPipelineLayout PipelineLayout;
 };
 
 static VK_Func Vulkan_Functions;
@@ -896,6 +902,55 @@ VkResult InitUniformBuffer()
 	return res;
 }
 
+#define NUM_OF_DESCRIPTOR_SETS 1
+
+///*NOTE(KAI)*///
+/// Shaders need descriptors to access uniforms
+/// Descriptors need to belong to descriptor set
+/// Descriptor sets need to belong to a descriptor set layout (which is used to describe a list of descriptor sets)
+/// Each descriptor set needs to have a layout binding (used to describe the descriptor set)
+/// Pipeline layout is used to describe a list of descriptor set layouts
+VkResult InitPipelineLayout() 
+{
+	VkDescriptorSetLayoutBinding layoutBinding = {};
+	layoutBinding.binding = 0;
+	layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	layoutBinding.descriptorCount = 1;
+	layoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = 1;
+	layoutInfo.pBindings = &layoutBinding;
+
+	Vulkan_Data.DescriptorSetLayouts.resize(NUM_OF_DESCRIPTOR_SETS);
+
+	VkResult res = Vulkan_Functions.vkCreateDescriptorSetLayout(Vulkan_Data.Device, &layoutInfo, NULL, Vulkan_Data.DescriptorSetLayouts.data());
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create descriptor set layout\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	VkPipelineLayoutCreateInfo pipelineInfo = {};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineInfo.setLayoutCount = NUM_OF_DESCRIPTOR_SETS;
+	pipelineInfo.pSetLayouts = Vulkan_Data.DescriptorSetLayouts.data();
+
+	res = Vulkan_Functions.vkCreatePipelineLayout(Vulkan_Data.Device, &pipelineInfo, NULL, &Vulkan_Data.PipelineLayout);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create pipeline layout\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	return res;
+}
+
 int InitVulkan()
 {
 	HMODULE vkLibrary = LoadLibrary("vulkan-1.dll");
@@ -947,6 +1002,8 @@ int InitVulkan()
 	Vulkan_Functions.vkMapMemory = (PFN_vkMapMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkMapMemory");
 	Vulkan_Functions.vkUnmapMemory = (PFN_vkUnmapMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkUnmapMemory");
 	Vulkan_Functions.vkBindBufferMemory = (PFN_vkBindBufferMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkBindBufferMemory");
+	Vulkan_Functions.vkCreateDescriptorSetLayout = (PFN_vkCreateDescriptorSetLayout)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateDescriptorSetLayout");
+	Vulkan_Functions.vkCreatePipelineLayout = (PFN_vkCreatePipelineLayout)GetFunctionPointer(Vulkan_Data.Instance, "vkCreatePipelineLayout");
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
@@ -993,6 +1050,13 @@ int InitVulkan()
 	if (InitUniformBuffer() != VK_SUCCESS)
 	{
 		ExitOnError("Failed to create uniform buffer\n");
+
+		return NULL;
+	}
+
+	if (InitPipelineLayout() != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create pipeline layout\n");
 
 		return NULL;
 	}

@@ -75,5 +75,13 @@
  ==> ///	3- The memory
  ==> ///	4- Put the data in the memory by: mapping the memory, copying the data to the memory then unmaping the memory
  ==> ///	5- bind the memory to the buffer
+
+ ==> created a pipeline layout
+ ==> Shaders explicitly use descriptors in the shading language, i.e: https://vulkan.lunarg.com/doc/sdk/1.1.70.1/windows/tutorial/html/08-init_pipeline_layout.html bottom of the page
+ ==> ///	Shaders need descriptors to access uniforms
+ ==> ///	Descriptors need to belong to descriptor set
+ ==> ///	Descriptor sets need to belong to a descriptor set layout (which is used to describe a list of descriptor sets)
+ ==> ///	Each descriptor set needs to have a layout binding (used to describe the descriptor set)
+ ==> ///	Pipeline layout is used to describe a list of descriptor set layouts
 		
 */
