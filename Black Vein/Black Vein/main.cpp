@@ -497,6 +497,7 @@ VkResult InitSwapChain()
 		swapInfo.oldSwapchain = VK_NULL_HANDLE;
 		swapInfo.clipped = true;
 		swapInfo.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+		swapInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 		swapInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		swapInfo.queueFamilyIndexCount = 0;
 		swapInfo.pQueueFamilyIndices = NULL;
