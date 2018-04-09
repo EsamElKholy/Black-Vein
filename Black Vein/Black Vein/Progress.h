@@ -93,5 +93,22 @@
  ==> ///	1- Descriptor pool, one pool for each descriptor type (we only have one)
  ==> ///	2- Allocate memory for the descriptor
  ==> ///	3- Copy data from the uniform buffer to the descriptor
+
+ ==> create render pass
+ ==> render pass describes the render operation by specifying the attachments, subpasses and other dependencies
+ ==> render pass has at least one subpass
+ ==> example of attachment include: 
+		 - color attachment which is the image aquired from the swapchain
+		 - depth/stencil attachment which is the depth buffer we previously allocated
+ ==> image attachments must be prepared before used
+ ==> the preparation involves image layout transition from their initial state to an optimal state to use in the render pass
+ ==> layout refers to how the texels are mapped from grid coordinates to offset in the memory
+ ==> /// To create render pass we need:
+ ==> ///		1- Create a semaphore for aquiring an image from the swapchain and prepare it for the render pass
+					- a semaphore is normally used to hold back the rendering operation until the image is available
+ ==> ///		2- Aquiring the image
+ ==> ///		3- Prepare color and depth attachment by specifying the layout transition
+ ==> ///		4- Describe the render subpass
+ ==> ///		5- Create the render pass
 		
 */

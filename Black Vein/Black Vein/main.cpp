@@ -42,6 +42,9 @@ struct VK_Func
 	PFN_vkCreateDescriptorPool vkCreateDescriptorPool;
 	PFN_vkAllocateDescriptorSets vkAllocateDescriptorSets;
 	PFN_vkUpdateDescriptorSets vkUpdateDescriptorSets;
+	PFN_vkCreateSemaphore vkCreateSemaphore;
+	PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
+	PFN_vkCreateRenderPass vkCreateRenderPass;
 
 	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
@@ -122,6 +125,10 @@ struct VK_Data
 
 	VkDescriptorPool DescriptorPool;
 	std::vector<VkDescriptorSet> DescriptorSets;
+
+	uint32_t CurrentBuffer;
+
+	VkRenderPass RenderPass;
 };
 
 static VK_Func Vulkan_Functions;
@@ -1016,6 +1023,96 @@ VkResult InitDescriptorSet()
 	return VkResult::VK_SUCCESS;
 }
 
+///*NOTE(KAI)*///
+/// To create render pass we need:
+/// 1- Create a semaphore for aquiring an image from the swapchain and prepare it for the render pass
+/// 2- Aquiring the image
+/// 3- Prepare color and depth attachment by specifying the layout transition
+/// 4- Describe the render subpass
+/// 5- Create the render pass
+VkResult InitRenderPass() 
+{
+	VkSemaphore imageAquiredSemaphore;
+	VkSemaphoreCreateInfo semaphoreInfo = {};
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	
+	VkResult res = Vulkan_Functions.vkCreateSemaphore(Vulkan_Data.Device, &semaphoreInfo, NULL, &imageAquiredSemaphore);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create semaphore \n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	res = Vulkan_Functions.vkAcquireNextImageKHR(Vulkan_Data.Device
+												, Vulkan_Data.SwapChain
+												, UINT64_MAX
+												, imageAquiredSemaphore
+												, VK_NULL_HANDLE
+												, &Vulkan_Data.CurrentBuffer);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to aquire the swapchain image\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	VkAttachmentDescription attachments[2];
+	attachments[0] = {};
+	attachments[0].format = Vulkan_Data.Format;
+	attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+	attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	attachments[1] = {};
+	attachments[1].format = Vulkan_Data.Depth.Format;
+	attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+	attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference colorRef = {};
+	colorRef.attachment = 0;
+	colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference depthRef = {};
+	depthRef.attachment = 1;
+	depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	VkSubpassDescription subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &colorRef;
+	subpass.pDepthStencilAttachment = &depthRef;
+
+	VkRenderPassCreateInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.pAttachments = attachments;
+	renderPassInfo.subpassCount = 1;
+	renderPassInfo.pSubpasses = &subpass;
+
+	res = Vulkan_Functions.vkCreateRenderPass(Vulkan_Data.Device, &renderPassInfo, NULL, &Vulkan_Data.RenderPass);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create render pass\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	return res;
+}
+
 int InitVulkan()
 {
 	HMODULE vkLibrary = LoadLibrary("vulkan-1.dll");
@@ -1072,6 +1169,9 @@ int InitVulkan()
 	Vulkan_Functions.vkCreateDescriptorPool = (PFN_vkCreateDescriptorPool)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateDescriptorPool");
 	Vulkan_Functions.vkAllocateDescriptorSets = (PFN_vkAllocateDescriptorSets)GetFunctionPointer(Vulkan_Data.Instance, "vkAllocateDescriptorSets");
 	Vulkan_Functions.vkUpdateDescriptorSets = (PFN_vkUpdateDescriptorSets)GetFunctionPointer(Vulkan_Data.Instance, "vkUpdateDescriptorSets");
+	Vulkan_Functions.vkCreateSemaphore = (PFN_vkCreateSemaphore)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateSemaphore");
+	Vulkan_Functions.vkAcquireNextImageKHR = (PFN_vkAcquireNextImageKHR)GetFunctionPointer(Vulkan_Data.Instance, "vkAcquireNextImageKHR");
+	Vulkan_Functions.vkCreateRenderPass = (PFN_vkCreateRenderPass)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateRenderPass");
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
@@ -1132,6 +1232,13 @@ int InitVulkan()
 	if (InitDescriptorSet() != VK_SUCCESS)
 	{
 		ExitOnError("Failed to allocate memory for descriptor set\n");
+
+		return NULL;
+	}
+
+	if (InitRenderPass() != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create render pass\n");
 
 		return NULL;
 	}
