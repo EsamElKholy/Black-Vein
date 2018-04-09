@@ -83,5 +83,15 @@
  ==> ///	Descriptor sets need to belong to a descriptor set layout (which is used to describe a list of descriptor sets)
  ==> ///	Each descriptor set needs to have a layout binding (used to describe the descriptor set)
  ==> ///	Pipeline layout is used to describe a list of descriptor set layouts
+
+
+
+// Day 4
+
+ ==> allocated memory for the descriptor set
+ ==> /// To allocate memory for descriptor set we need:
+ ==> ///	1- Descriptor pool, one pool for each descriptor type (we only have one)
+ ==> ///	2- Allocate memory for the descriptor
+ ==> ///	3- Copy data from the uniform buffer to the descriptor
 		
 */

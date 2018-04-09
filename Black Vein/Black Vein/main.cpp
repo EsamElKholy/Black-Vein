@@ -39,6 +39,9 @@ struct VK_Func
 	PFN_vkBindBufferMemory vkBindBufferMemory;
 	PFN_vkCreateDescriptorSetLayout vkCreateDescriptorSetLayout;
 	PFN_vkCreatePipelineLayout vkCreatePipelineLayout;
+	PFN_vkCreateDescriptorPool vkCreateDescriptorPool;
+	PFN_vkAllocateDescriptorSets vkAllocateDescriptorSets;
+	PFN_vkUpdateDescriptorSets vkUpdateDescriptorSets;
 
 	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
@@ -116,6 +119,9 @@ struct VK_Data
 	std::vector<VkDescriptorSetLayout> DescriptorSetLayouts;
 
 	VkPipelineLayout PipelineLayout;
+
+	VkDescriptorPool DescriptorPool;
+	std::vector<VkDescriptorSet> DescriptorSets;
 };
 
 static VK_Func Vulkan_Functions;
@@ -951,6 +957,65 @@ VkResult InitPipelineLayout()
 	return res;
 }
 
+///*NOTE(KAI)*///
+/// To allocate memory for descriptor set we need:
+/// 1- Descriptor pool, one pool for each descriptor type (we only have one)
+/// 2- Allocate memory for the descriptor
+/// 3- Copy data from the uniform buffer to the descriptor
+VkResult InitDescriptorSet() 
+{
+	VkDescriptorPoolSize typeCount[1];
+	typeCount[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	typeCount[0].descriptorCount = 1;
+
+	VkDescriptorPoolCreateInfo poolInfo = {};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.maxSets = 1;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = typeCount;
+
+	VkResult res = Vulkan_Functions.vkCreateDescriptorPool(Vulkan_Data.Device, &poolInfo, NULL, &Vulkan_Data.DescriptorPool);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create descriptor pool\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	VkDescriptorSetAllocateInfo allocInfo[1];
+	allocInfo[0] = {};
+	allocInfo[0].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo[0].descriptorSetCount = NUM_OF_DESCRIPTOR_SETS;
+	allocInfo[0].descriptorPool = Vulkan_Data.DescriptorPool;
+	allocInfo[0].pSetLayouts = Vulkan_Data.DescriptorSetLayouts.data();
+
+	Vulkan_Data.DescriptorSets.resize(NUM_OF_DESCRIPTOR_SETS);
+
+	res = Vulkan_Functions.vkAllocateDescriptorSets(Vulkan_Data.Device, allocInfo, Vulkan_Data.DescriptorSets.data());
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to allocate memory for descriptor set from the pool\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	VkWriteDescriptorSet writes[1];
+	writes[0] = {};
+	writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[0].dstSet = Vulkan_Data.DescriptorSets[0];
+	writes[0].descriptorCount = 1;
+	writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	writes[0].pBufferInfo = &Vulkan_Data.UniformBuffer.BufferInfo;
+	writes[0].dstArrayElement = 0;
+	writes[0].dstBinding = 0;
+
+	Vulkan_Functions.vkUpdateDescriptorSets(Vulkan_Data.Device, 1, writes, 0, NULL);
+
+	return VkResult::VK_SUCCESS;
+}
+
 int InitVulkan()
 {
 	HMODULE vkLibrary = LoadLibrary("vulkan-1.dll");
@@ -1004,6 +1069,9 @@ int InitVulkan()
 	Vulkan_Functions.vkBindBufferMemory = (PFN_vkBindBufferMemory)GetFunctionPointer(Vulkan_Data.Instance, "vkBindBufferMemory");
 	Vulkan_Functions.vkCreateDescriptorSetLayout = (PFN_vkCreateDescriptorSetLayout)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateDescriptorSetLayout");
 	Vulkan_Functions.vkCreatePipelineLayout = (PFN_vkCreatePipelineLayout)GetFunctionPointer(Vulkan_Data.Instance, "vkCreatePipelineLayout");
+	Vulkan_Functions.vkCreateDescriptorPool = (PFN_vkCreateDescriptorPool)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateDescriptorPool");
+	Vulkan_Functions.vkAllocateDescriptorSets = (PFN_vkAllocateDescriptorSets)GetFunctionPointer(Vulkan_Data.Instance, "vkAllocateDescriptorSets");
+	Vulkan_Functions.vkUpdateDescriptorSets = (PFN_vkUpdateDescriptorSets)GetFunctionPointer(Vulkan_Data.Instance, "vkUpdateDescriptorSets");
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
@@ -1057,6 +1125,13 @@ int InitVulkan()
 	if (InitPipelineLayout() != VK_SUCCESS)
 	{
 		ExitOnError("Failed to create pipeline layout\n");
+
+		return NULL;
+	}
+
+	if (InitDescriptorSet() != VK_SUCCESS)
+	{
+		ExitOnError("Failed to allocate memory for descriptor set\n");
 
 		return NULL;
 	}
