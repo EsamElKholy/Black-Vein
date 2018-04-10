@@ -110,5 +110,30 @@
  ==> ///		3- Prepare color and depth attachment by specifying the layout transition
  ==> ///		4- Describe the render subpass
  ==> ///		5- Create the render pass
-		
+
+ ==> created shader
+ ==> /// To create a shader we need:
+ ==> ///		1- The shader code in GLSL (here we have vertex and fragment shaders only)
+ ==> ///		2- An array of unsigned int to hold the converted shader code
+ ==> ///		3- Shader stages info
+ ==> ///		4- The GLSL to SPIR-V conversion functions
+ ==> ///		5- The shader modules
+ ==> ///		6- We convert the GLSL to SPIR-V
+ ==> ///		7- Fill-in the shader stages info
+ ==> ///		8- Then we create the shader modules using the converted code and the shader stages
+ ==> the conversion functions were taken from the vulkan samples
+ ==> to use them we need both the include folders "glslang" and "SPIRV", both can be found in the vulkan SDK directory
+ ==> we also need the following libraries:
+	{
+		glslangd.lib
+		OGLCompilerd.lib
+		SPIRVd.lib
+		SPVRemapperd.lib
+		HLSLd.lib
+		OSDependentd.lib
+		SPIRV-Toolsd.lib
+		SPIRV-Tools-optd.lib
+	}
+	=> They can be found by generating a solution with cmake from the glslang folder in the vulkan SDK folder and then building it
+	=> These are debug libraries
 */

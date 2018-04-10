@@ -4,6 +4,7 @@
 #include <iostream>
 #include <vector>
 #include <CinderMath.h>
+#include <SPIRV\GlslangToSpv.h>
 
 using namespace Cinder::Math;
 
@@ -45,6 +46,7 @@ struct VK_Func
 	PFN_vkCreateSemaphore vkCreateSemaphore;
 	PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
 	PFN_vkCreateRenderPass vkCreateRenderPass;
+	PFN_vkCreateShaderModule vkCreateShaderModule;
 
 	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
@@ -129,6 +131,7 @@ struct VK_Data
 	uint32_t CurrentBuffer;
 
 	VkRenderPass RenderPass;
+	VkPipelineShaderStageCreateInfo ShaderStages[2];
 };
 
 static VK_Func Vulkan_Functions;
@@ -169,6 +172,171 @@ bool GetMemoryTypeFromProperties(VK_Data &data, uint32_t typeBits, VkFlags requi
 	// No memory types matched, return failure
 	return false;
 }
+
+///***NOTE(KAI)***///
+/// Shader utility functions taken from the vulkan samples 
+void init_resources(TBuiltInResource &Resources) 
+{
+	Resources.maxLights = 32;
+	Resources.maxClipPlanes = 6;
+	Resources.maxTextureUnits = 32;
+	Resources.maxTextureCoords = 32;
+	Resources.maxVertexAttribs = 64;
+	Resources.maxVertexUniformComponents = 4096;
+	Resources.maxVaryingFloats = 64;
+	Resources.maxVertexTextureImageUnits = 32;
+	Resources.maxCombinedTextureImageUnits = 80;
+	Resources.maxTextureImageUnits = 32;
+	Resources.maxFragmentUniformComponents = 4096;
+	Resources.maxDrawBuffers = 32;
+	Resources.maxVertexUniformVectors = 128;
+	Resources.maxVaryingVectors = 8;
+	Resources.maxFragmentUniformVectors = 16;
+	Resources.maxVertexOutputVectors = 16;
+	Resources.maxFragmentInputVectors = 15;
+	Resources.minProgramTexelOffset = -8;
+	Resources.maxProgramTexelOffset = 7;
+	Resources.maxClipDistances = 8;
+	Resources.maxComputeWorkGroupCountX = 65535;
+	Resources.maxComputeWorkGroupCountY = 65535;
+	Resources.maxComputeWorkGroupCountZ = 65535;
+	Resources.maxComputeWorkGroupSizeX = 1024;
+	Resources.maxComputeWorkGroupSizeY = 1024;
+	Resources.maxComputeWorkGroupSizeZ = 64;
+	Resources.maxComputeUniformComponents = 1024;
+	Resources.maxComputeTextureImageUnits = 16;
+	Resources.maxComputeImageUniforms = 8;
+	Resources.maxComputeAtomicCounters = 8;
+	Resources.maxComputeAtomicCounterBuffers = 1;
+	Resources.maxVaryingComponents = 60;
+	Resources.maxVertexOutputComponents = 64;
+	Resources.maxGeometryInputComponents = 64;
+	Resources.maxGeometryOutputComponents = 128;
+	Resources.maxFragmentInputComponents = 128;
+	Resources.maxImageUnits = 8;
+	Resources.maxCombinedImageUnitsAndFragmentOutputs = 8;
+	Resources.maxCombinedShaderOutputResources = 8;
+	Resources.maxImageSamples = 0;
+	Resources.maxVertexImageUniforms = 0;
+	Resources.maxTessControlImageUniforms = 0;
+	Resources.maxTessEvaluationImageUniforms = 0;
+	Resources.maxGeometryImageUniforms = 0;
+	Resources.maxFragmentImageUniforms = 8;
+	Resources.maxCombinedImageUniforms = 8;
+	Resources.maxGeometryTextureImageUnits = 16;
+	Resources.maxGeometryOutputVertices = 256;
+	Resources.maxGeometryTotalOutputComponents = 1024;
+	Resources.maxGeometryUniformComponents = 1024;
+	Resources.maxGeometryVaryingComponents = 64;
+	Resources.maxTessControlInputComponents = 128;
+	Resources.maxTessControlOutputComponents = 128;
+	Resources.maxTessControlTextureImageUnits = 16;
+	Resources.maxTessControlUniformComponents = 1024;
+	Resources.maxTessControlTotalOutputComponents = 4096;
+	Resources.maxTessEvaluationInputComponents = 128;
+	Resources.maxTessEvaluationOutputComponents = 128;
+	Resources.maxTessEvaluationTextureImageUnits = 16;
+	Resources.maxTessEvaluationUniformComponents = 1024;
+	Resources.maxTessPatchComponents = 120;
+	Resources.maxPatchVertices = 32;
+	Resources.maxTessGenLevel = 64;
+	Resources.maxViewports = 16;
+	Resources.maxVertexAtomicCounters = 0;
+	Resources.maxTessControlAtomicCounters = 0;
+	Resources.maxTessEvaluationAtomicCounters = 0;
+	Resources.maxGeometryAtomicCounters = 0;
+	Resources.maxFragmentAtomicCounters = 8;
+	Resources.maxCombinedAtomicCounters = 8;
+	Resources.maxAtomicCounterBindings = 1;
+	Resources.maxVertexAtomicCounterBuffers = 0;
+	Resources.maxTessControlAtomicCounterBuffers = 0;
+	Resources.maxTessEvaluationAtomicCounterBuffers = 0;
+	Resources.maxGeometryAtomicCounterBuffers = 0;
+	Resources.maxFragmentAtomicCounterBuffers = 1;
+	Resources.maxCombinedAtomicCounterBuffers = 1;
+	Resources.maxAtomicCounterBufferSize = 16384;
+	Resources.maxTransformFeedbackBuffers = 4;
+	Resources.maxTransformFeedbackInterleavedComponents = 64;
+	Resources.maxCullDistances = 8;
+	Resources.maxCombinedClipAndCullDistances = 8;
+	Resources.maxSamples = 4;
+	Resources.limits.nonInductiveForLoops = 1;
+	Resources.limits.whileLoops = 1;
+	Resources.limits.doWhileLoops = 1;
+	Resources.limits.generalUniformIndexing = 1;
+	Resources.limits.generalAttributeMatrixVectorIndexing = 1;
+	Resources.limits.generalVaryingIndexing = 1;
+	Resources.limits.generalSamplerIndexing = 1;
+	Resources.limits.generalVariableIndexing = 1;
+	Resources.limits.generalConstantMatrixVectorIndexing = 1;
+}
+
+EShLanguage FindLanguage(const VkShaderStageFlagBits shader_type) 
+{
+	switch (shader_type) {
+	case VK_SHADER_STAGE_VERTEX_BIT:
+		return EShLangVertex;
+
+	case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
+		return EShLangTessControl;
+
+	case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
+		return EShLangTessEvaluation;
+
+	case VK_SHADER_STAGE_GEOMETRY_BIT:
+		return EShLangGeometry;
+
+	case VK_SHADER_STAGE_FRAGMENT_BIT:
+		return EShLangFragment;
+
+	case VK_SHADER_STAGE_COMPUTE_BIT:
+		return EShLangCompute;
+
+	default:
+		return EShLangVertex;
+	}
+}
+
+bool GLSLtoSPV(const VkShaderStageFlagBits shader_type, const char *pshader, std::vector<unsigned int> &spirv) 
+{
+	EShLanguage stage = FindLanguage(shader_type);
+	glslang::TShader shader(stage);
+	glslang::TProgram program;
+	const char *shaderStrings[1];
+	TBuiltInResource Resources;
+	init_resources(Resources);
+
+	// Enable SPIR-V and Vulkan rules when parsing GLSL
+	EShMessages messages = (EShMessages)(EShMsgSpvRules | EShMsgVulkanRules);
+
+	shaderStrings[0] = pshader;
+	shader.setStrings(shaderStrings, 1);
+
+	if (!shader.parse(&Resources, 100, false, messages)) {
+		puts(shader.getInfoLog());
+		puts(shader.getInfoDebugLog());
+		return false;  // something didn't work
+	}
+
+	program.addShader(&shader);
+
+	//
+	// Program-level processing...
+	//
+
+	if (!program.link(messages)) {
+		puts(shader.getInfoLog());
+		puts(shader.getInfoDebugLog());
+		fflush(stdout);
+		return false;
+	}
+
+	glslang::GlslangToSpv(*program.getIntermediate(stage), spirv);
+
+	return true;
+}
+///
+///
 
 PFN_vkVoidFunction GetFunctionPointer(VkInstance instance, char *name)	
 {
@@ -1113,6 +1281,96 @@ VkResult InitRenderPass()
 	return res;
 }
 
+///*NOTE(KAI)*///
+/// To create a shader we need:
+/// 1- The shader code in GLSL (here we have vertex and fragment shaders only)
+/// 2- An array of unsigned int to hold the converted shader code
+/// 3- Shader stages info
+/// 4- The GLSL to SPIR-V conversion functions
+/// 5- The shader modules
+/// 6- We convert the GLSL to SPIR-V
+/// 7- Fill-in the shader stages info
+/// 8- Then we create the shader modules using the converted code and the shader stages
+VkResult InitShader() 
+{
+	const char *vertText =
+		"#version 400\n"
+		"#extension GL_ARB_separate_shader_objects : enable\n"
+		"#extension GL_ARB_shading_language_420pack : enable\n"
+		"layout (std140, binding = 0) uniform bufferVals\n"
+		"{\n"
+		"	mat4 MVP;\n"
+		"} myBufferVals;\n"
+		"layout (location = 0) in vec4 pos;\n"
+		"layout (location = 1) in vec4 inColor;\n"
+		"layout (location = 0) out vec4 outColor;\n"
+		"void main()\n"
+		"{\n"
+		"	outColor = inColor;\n"
+		"	gl_Position = myBufferVals.MVP * pos;\n"
+		"}\n";
+
+	const char *fragText =
+		"#version 400\n"
+		"#extension GL_ARB_separate_shader_objects : enable\n"
+		"#extension GL_ARB_shading_language_420pack : enable\n"
+		"layout (location = 0) in vec4 color;\n"
+		"layout (location = 0) out vec4 outColor;\n"
+		"void main()\n"
+		"{\n"
+		"	outColor = color;\n"
+		"}\n";
+		
+	std::vector<unsigned int>  vertToSPRV;
+	Vulkan_Data.ShaderStages[0] = {};
+	Vulkan_Data.ShaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	Vulkan_Data.ShaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	Vulkan_Data.ShaderStages[0].pName = "main";
+
+	std::vector<unsigned int>  fragToSPRV;
+	Vulkan_Data.ShaderStages[1] = {};
+	Vulkan_Data.ShaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	Vulkan_Data.ShaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	Vulkan_Data.ShaderStages[1].pName = "main";
+
+	glslang::InitializeProcess();
+
+	GLSLtoSPV(VK_SHADER_STAGE_VERTEX_BIT, vertText, vertToSPRV);
+	GLSLtoSPV(VK_SHADER_STAGE_FRAGMENT_BIT, fragText, fragToSPRV);
+
+	VkShaderModuleCreateInfo vertModInfo = {};
+	vertModInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	vertModInfo.codeSize = vertToSPRV.size() * sizeof(unsigned int);
+	vertModInfo.pCode = vertToSPRV.data();
+
+	VkResult res = Vulkan_Functions.vkCreateShaderModule(Vulkan_Data.Device, &vertModInfo, NULL, &Vulkan_Data.ShaderStages[0].module);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to created vertex shader module\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	VkShaderModuleCreateInfo fragModInfo = {};
+	fragModInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	fragModInfo.codeSize = fragToSPRV.size() * sizeof(unsigned int);
+	fragModInfo.pCode = fragToSPRV.data();
+
+	res = Vulkan_Functions.vkCreateShaderModule(Vulkan_Data.Device, &fragModInfo, NULL, &Vulkan_Data.ShaderStages[1].module);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to created fragment shader module\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	glslang::FinalizeProcess();
+
+	return res;
+}
+
 int InitVulkan()
 {
 	HMODULE vkLibrary = LoadLibrary("vulkan-1.dll");
@@ -1172,6 +1430,7 @@ int InitVulkan()
 	Vulkan_Functions.vkCreateSemaphore = (PFN_vkCreateSemaphore)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateSemaphore");
 	Vulkan_Functions.vkAcquireNextImageKHR = (PFN_vkAcquireNextImageKHR)GetFunctionPointer(Vulkan_Data.Instance, "vkAcquireNextImageKHR");
 	Vulkan_Functions.vkCreateRenderPass = (PFN_vkCreateRenderPass)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateRenderPass");
+	Vulkan_Functions.vkCreateShaderModule = (PFN_vkCreateShaderModule)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateShaderModule");
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
@@ -1239,6 +1498,13 @@ int InitVulkan()
 	if (InitRenderPass() != VK_SUCCESS)
 	{
 		ExitOnError("Failed to create render pass\n");
+
+		return NULL;
+	}
+
+	if (InitShader() != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create shader\n");
 
 		return NULL;
 	}
