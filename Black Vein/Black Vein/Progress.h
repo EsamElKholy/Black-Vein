@@ -137,4 +137,15 @@
 	=> They can be found by generating a solution with cmake from the glslang folder in the vulkan SDK folder and then building it
 	=> These are debug libraries
 
+
+// Day 5
+ 
+ ==> created frame buffer
+ ==> frame buffer is a collection of memory attachment used in the render pass
+ ==> here we put the color image and depth image in one frame buffer
+ ==> because we get 2 images from the swapchain we created 2 frame buffers but both of them have the same depth image
+ ==> /// To create frame buffers we need:
+ ==> ///		1- Link the image views (color and depth here) to it via the frame buffer info struct 
+ ==> ///		2- Create the frame buffer
+
 */

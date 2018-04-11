@@ -47,6 +47,7 @@ struct VK_Func
 	PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
 	PFN_vkCreateRenderPass vkCreateRenderPass;
 	PFN_vkCreateShaderModule vkCreateShaderModule;
+	PFN_vkCreateFramebuffer vkCreateFramebuffer;
 
 	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
@@ -132,6 +133,8 @@ struct VK_Data
 
 	VkRenderPass RenderPass;
 	VkPipelineShaderStageCreateInfo ShaderStages[2];
+
+	VkFramebuffer *FrameBuffers;
 };
 
 static VK_Func Vulkan_Functions;
@@ -273,7 +276,8 @@ void init_resources(TBuiltInResource &Resources)
 
 EShLanguage FindLanguage(const VkShaderStageFlagBits shader_type) 
 {
-	switch (shader_type) {
+	switch (shader_type) 
+	{
 	case VK_SHADER_STAGE_VERTEX_BIT:
 		return EShLangVertex;
 
@@ -1371,6 +1375,51 @@ VkResult InitShader()
 	return res;
 }
 
+///*NOTE(KAI)*///
+/// To create frame buffers we need:
+/// 1- Link the image views (color and depth here) to it via the frame buffer info struct 
+/// 2- Create the frame buffer
+VkResult InitFrameBuffer() 
+{
+	VkImageView attachments[2];
+	attachments[1] = Vulkan_Data.Depth.View;
+
+	VkFramebufferCreateInfo frameBufferInfo = {};
+	frameBufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	frameBufferInfo.renderPass = Vulkan_Data.RenderPass;
+	frameBufferInfo.pAttachments = attachments;
+	frameBufferInfo.width = Vulkan_Data.Width;
+	frameBufferInfo.height = Vulkan_Data.Height;
+	frameBufferInfo.layers = 1;
+
+	Vulkan_Data.FrameBuffers = (VkFramebuffer*)malloc(Vulkan_Data.SwapChainImageCount * sizeof(VkFramebuffer));
+
+	if (!Vulkan_Data.FrameBuffers)
+	{
+		ExitOnError("Failed to allocate memory for frame buffers\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	VkResult res;
+
+	for (size_t i = 0; i < Vulkan_Data.SwapChainImageCount; i++)
+	{
+		attachments[0] = Vulkan_Data.Buffers[i].View;
+
+		res = Vulkan_Functions.vkCreateFramebuffer(Vulkan_Data.Device, &frameBufferInfo, NULL, &Vulkan_Data.FrameBuffers[i]);
+	
+		if (res != VK_SUCCESS)
+		{
+			ExitOnError("Failed to create frame buffer\n");
+
+			return VkResult::VK_INCOMPLETE;
+		}
+	}
+
+	return res;
+}
+
 int InitVulkan()
 {
 	HMODULE vkLibrary = LoadLibrary("vulkan-1.dll");
@@ -1431,6 +1480,7 @@ int InitVulkan()
 	Vulkan_Functions.vkAcquireNextImageKHR = (PFN_vkAcquireNextImageKHR)GetFunctionPointer(Vulkan_Data.Instance, "vkAcquireNextImageKHR");
 	Vulkan_Functions.vkCreateRenderPass = (PFN_vkCreateRenderPass)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateRenderPass");
 	Vulkan_Functions.vkCreateShaderModule = (PFN_vkCreateShaderModule)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateShaderModule");
+	Vulkan_Functions.vkCreateFramebuffer = (PFN_vkCreateFramebuffer)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateFramebuffer");
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
@@ -1505,6 +1555,13 @@ int InitVulkan()
 	if (InitShader() != VK_SUCCESS)
 	{
 		ExitOnError("Failed to create shader\n");
+
+		return NULL;
+	}
+
+	if (InitFrameBuffer() != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create frame buffers\n");
 
 		return NULL;
 	}
