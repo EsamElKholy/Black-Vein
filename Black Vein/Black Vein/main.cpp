@@ -5,6 +5,9 @@
 #include <vector>
 #include <CinderMath.h>
 #include <SPIRV\GlslangToSpv.h>
+#include "cube_data.h"
+
+#define FENCE_TIMEOUT 100000000
 
 using namespace Cinder::Math;
 
@@ -48,6 +51,15 @@ struct VK_Func
 	PFN_vkCreateRenderPass vkCreateRenderPass;
 	PFN_vkCreateShaderModule vkCreateShaderModule;
 	PFN_vkCreateFramebuffer vkCreateFramebuffer;
+	PFN_vkCmdBeginRenderPass vkCmdBeginRenderPass;
+	PFN_vkCmdBindVertexBuffers vkCmdBindVertexBuffers;
+	PFN_vkCmdEndRenderPass vkCmdEndRenderPass;
+	PFN_vkBeginCommandBuffer vkBeginCommandBuffer;
+	PFN_vkEndCommandBuffer vkEndCommandBuffer;
+	PFN_vkCreateFence vkCreateFence;
+	PFN_vkQueueSubmit vkQueueSubmit;
+	PFN_vkWaitForFences vkWaitForFences;
+	PFN_vkDestroyFence vkDestroyFence;
 
 	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
@@ -96,6 +108,9 @@ struct VK_Data
 	uint32_t PresentQueueFamilyIndex; 
 	std::vector<VkQueueFamilyProperties> QueueFamilyProperties; 
 
+	VkQueue GraphicsQueue;
+	VkQueue PresentQueue;
+
 	VkDevice Device; 
 
 	VkCommandPool CommandPool; 
@@ -135,6 +150,11 @@ struct VK_Data
 	VkPipelineShaderStageCreateInfo ShaderStages[2];
 
 	VkFramebuffer *FrameBuffers;
+
+	BufferData VertexBuffer;
+
+	VkVertexInputBindingDescription VertexInputBinding;
+	VkVertexInputAttributeDescription VertexInputAttributes[2];
 };
 
 static VK_Func Vulkan_Functions;
@@ -505,6 +525,67 @@ VkResult InitCommandBuffer()
 	VkResult result = Vulkan_Functions.vkAllocateCommandBuffers(Vulkan_Data.Device, &bufferInfo, &Vulkan_Data.CommandBuffer);
 
 	return result;
+}
+
+void BeginCommandBuffer(VK_Data &data) 
+{
+	VkCommandBufferBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	
+	VkResult res = Vulkan_Functions.vkBeginCommandBuffer(Vulkan_Data.CommandBuffer, &beginInfo);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to begin command buffer\n");
+	}
+}
+
+void EndCommandBuffer(VK_Data &data)
+{
+	VkResult res = Vulkan_Functions.vkEndCommandBuffer(Vulkan_Data.CommandBuffer);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to end command buffer\n");
+	}
+}
+
+// TODO(KAI): Study this function carefully and write a description for it here and in the progress log
+void SubmitCommandBufferToQueue(VK_Data &data)
+{
+	VkCommandBuffer cmdBuffers[] = { Vulkan_Data.CommandBuffer };
+	VkFence drawFence = {};
+	VkFenceCreateInfo fenceInfo = {};
+	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+	VkResult res = Vulkan_Functions.vkCreateFence(Vulkan_Data.Device, &fenceInfo, NULL, &drawFence);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create fence\n");
+	}
+
+	VkPipelineStageFlags pipelineStageFlags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+	VkSubmitInfo submitInfo[1] = {};
+	submitInfo[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo[0].pWaitDstStageMask = &pipelineStageFlags;
+	submitInfo[0].commandBufferCount = 1;
+	submitInfo[0].pCommandBuffers = cmdBuffers;
+
+	res = Vulkan_Functions.vkQueueSubmit(Vulkan_Data.GraphicsQueue, 1, submitInfo, drawFence);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to submit to queue\n");
+	}
+
+	do
+	{
+		res = Vulkan_Functions.vkWaitForFences(Vulkan_Data.Device, 1, &drawFence, VK_TRUE, FENCE_TIMEOUT);
+	} while (res == VK_TIMEOUT);
+
+	Vulkan_Functions.vkDestroyFence(Vulkan_Data.Device, drawFence, NULL);
 }
 
 VkResult InitSurface() 
@@ -1420,6 +1501,156 @@ VkResult InitFrameBuffer()
 	return res;
 }
 
+///*NOTE(KAI)*///
+/// To create vertex buffer we need:
+/// 1- The vertex data
+/// 2- Create the buffer
+/// 3- Get memory requirements and allocate info
+/// 4- Allocate the memory
+/// 5- Map the memory, copy the vertex data to it then unmap the memory
+/// 6- Bind the memory to the vertex buffer
+/// 7- Create vertex input binding to describe the memory arrangement to the GPU
+VkResult InitVertexBuffer() 
+{
+	VkBufferCreateInfo vertInfo = {};
+	vertInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	vertInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	vertInfo.size = sizeof(g_vb_solid_face_colors_Data);
+	vertInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VkResult res = Vulkan_Functions.vkCreateBuffer(Vulkan_Data.Device, &vertInfo, NULL, &Vulkan_Data.VertexBuffer.Buffer);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create buffer\n");
+
+		return res;
+	}
+
+	VkMemoryRequirements memReq = {};
+	Vulkan_Functions.vkGetBufferMemoryRequirements(Vulkan_Data.Device, Vulkan_Data.VertexBuffer.Buffer, &memReq);
+
+	VkMemoryAllocateInfo memInfo = {};
+	memInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	memInfo.allocationSize = memReq.size;
+	memInfo.memoryTypeIndex = 0;
+
+	bool success = GetMemoryTypeFromProperties(Vulkan_Data
+										, memReq.memoryTypeBits
+										, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+										, &memInfo.memoryTypeIndex);
+
+	if (!success)
+	{
+		ExitOnError("Failed to get memory type\n");
+
+		return VkResult::VK_INCOMPLETE;
+	}
+
+	res = Vulkan_Functions.vkAllocateMemory(Vulkan_Data.Device, &memInfo, NULL, &Vulkan_Data.VertexBuffer.Memory);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to allocate memory for the vertex buffer\n");
+
+		return res;
+	}
+
+	uint8_t *data = NULL;
+	res = Vulkan_Functions.vkMapMemory(Vulkan_Data.Device, Vulkan_Data.VertexBuffer.Memory, 0, memReq.size, 0, (void**)data);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to map memory\n");
+
+		return res;
+	}
+
+	memcpy(data, g_vb_solid_face_colors_Data, sizeof(g_vb_solid_face_colors_Data));
+
+	Vulkan_Functions.vkUnmapMemory(Vulkan_Data.Device, Vulkan_Data.VertexBuffer.Memory);
+
+	res = Vulkan_Functions.vkBindBufferMemory(Vulkan_Data.Device, Vulkan_Data.VertexBuffer.Buffer, Vulkan_Data.VertexBuffer.Memory, 0);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to bind memory to vertex buffer\n");
+
+		return res;
+	}
+
+	Vulkan_Data.VertexInputBinding.binding = 0;
+	Vulkan_Data.VertexInputBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	Vulkan_Data.VertexInputBinding.stride = sizeof(g_vb_solid_face_colors_Data[0]);
+	
+	Vulkan_Data.VertexInputAttributes[0].binding = 0;
+	Vulkan_Data.VertexInputAttributes[0].location = 0;
+	Vulkan_Data.VertexInputAttributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	Vulkan_Data.VertexInputAttributes[0].offset = 0;
+
+	Vulkan_Data.VertexInputAttributes[1].binding = 0;
+	Vulkan_Data.VertexInputAttributes[1].location = 1;
+	Vulkan_Data.VertexInputAttributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	Vulkan_Data.VertexInputAttributes[1].offset = 16;
+
+	// TODO(KAI): - Check if I have to do these stuff here instead of mainloop
+	//			  - If this has to be done here then write a description for it at the top of the function and in the progress log
+	VkDeviceSize deviceSize[1] = { 0 };
+
+	VkClearValue clearValues[2];
+	clearValues[0].color.float32[0] = 0.2f;
+	clearValues[0].color.float32[1] = 0.2f;
+	clearValues[0].color.float32[2] = 0.2f;
+	clearValues[0].color.float32[3] = 0.2f;
+	clearValues[1].depthStencil.depth = 1.0f;
+	clearValues[1].depthStencil.stencil = 0.0f;
+	
+	VkSemaphore imageAquiredSemaphore = {};
+	VkSemaphoreCreateInfo semaphoreInfo = {};
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	
+	res = Vulkan_Functions.vkCreateSemaphore(Vulkan_Data.Device, &semaphoreInfo, NULL, &imageAquiredSemaphore);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create semaphore\n");
+
+		return res;
+	}
+
+	res = Vulkan_Functions.vkAcquireNextImageKHR(Vulkan_Data.Device, Vulkan_Data.SwapChain, UINT64_MAX, imageAquiredSemaphore, VK_NULL_HANDLE, &Vulkan_Data.CurrentBuffer);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to get the next image from the swapchain\n");
+
+		return res;
+	}
+
+	VkRenderPassBeginInfo renderInfo = {};
+	renderInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderInfo.renderPass = Vulkan_Data.RenderPass;
+	renderInfo.framebuffer = Vulkan_Data.FrameBuffers[Vulkan_Data.CurrentBuffer];
+	renderInfo.renderArea.offset.x = 0;
+	renderInfo.renderArea.offset.x = 0;
+	renderInfo.renderArea.extent.width = Vulkan_Data.Width;
+	renderInfo.renderArea.extent.height = Vulkan_Data.Height;
+	renderInfo.clearValueCount = 2;
+	renderInfo.pClearValues = clearValues;
+
+	Vulkan_Functions.vkCmdBeginRenderPass(Vulkan_Data.CommandBuffer, &renderInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	Vulkan_Functions.vkCmdBindVertexBuffers(Vulkan_Data.CommandBuffer, 
+											0, 
+											1, 
+											&Vulkan_Data.VertexBuffer.Buffer, 
+											deviceSize);
+
+	Vulkan_Functions.vkCmdEndRenderPass(Vulkan_Data.CommandBuffer);
+
+	return res;
+}
+
 int InitVulkan()
 {
 	HMODULE vkLibrary = LoadLibrary("vulkan-1.dll");
@@ -1481,6 +1712,15 @@ int InitVulkan()
 	Vulkan_Functions.vkCreateRenderPass = (PFN_vkCreateRenderPass)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateRenderPass");
 	Vulkan_Functions.vkCreateShaderModule = (PFN_vkCreateShaderModule)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateShaderModule");
 	Vulkan_Functions.vkCreateFramebuffer = (PFN_vkCreateFramebuffer)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateFramebuffer");
+	Vulkan_Functions.vkCmdBeginRenderPass = (PFN_vkCmdBeginRenderPass)GetFunctionPointer(Vulkan_Data.Instance, "vkCmdBeginRenderPass");
+	Vulkan_Functions.vkCmdBindVertexBuffers = (PFN_vkCmdBindVertexBuffers)GetFunctionPointer(Vulkan_Data.Instance, "vkCmdBindVertexBuffers");
+	Vulkan_Functions.vkCmdEndRenderPass = (PFN_vkCmdEndRenderPass)GetFunctionPointer(Vulkan_Data.Instance, "vkCmdEndRenderPass");
+	Vulkan_Functions.vkBeginCommandBuffer = (PFN_vkBeginCommandBuffer)GetFunctionPointer(Vulkan_Data.Instance, "vkBeginCommandBuffer");
+	Vulkan_Functions.vkEndCommandBuffer = (PFN_vkEndCommandBuffer)GetFunctionPointer(Vulkan_Data.Instance, "vkEndCommandBuffer");
+	Vulkan_Functions.vkCreateFence = (PFN_vkCreateFence)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateFence");
+	Vulkan_Functions.vkQueueSubmit = (PFN_vkQueueSubmit)GetFunctionPointer(Vulkan_Data.Instance, "vkQueueSubmit");
+	Vulkan_Functions.vkWaitForFences = (PFN_vkWaitForFences)GetFunctionPointer(Vulkan_Data.Instance, "vkWaitForFences");
+	Vulkan_Functions.vkDestroyFence = (PFN_vkDestroyFence)GetFunctionPointer(Vulkan_Data.Instance, "vkDestroyFence");
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
@@ -1562,6 +1802,13 @@ int InitVulkan()
 	if (InitFrameBuffer() != VK_SUCCESS)
 	{
 		ExitOnError("Failed to create frame buffers\n");
+
+		return NULL;
+	}
+
+	if (InitVertexBuffer() != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create vertex buffer\n");
 
 		return NULL;
 	}

@@ -148,4 +148,20 @@
  ==> ///		1- Link the image views (color and depth here) to it via the frame buffer info struct 
  ==> ///		2- Create the frame buffer
 
+
+
+// Day 6
+ 
+ ==> created vertex buffer
+ ==> /// To create vertex buffer we need:
+ ==> ///		1- The vertex data (here I used cube_data.h file taken from the sample)
+ ==> ///		2- Create the buffer
+ ==> ///		3- Get memory requirements and allocate info
+ ==> ///		4- Allocate the memory
+ ==> ///		5- Map the memory, copy the vertex data to it then unmap the memory
+ ==> ///		6- Bind the memory to the vertex buffer
+ ==> ///		7- Create vertex input binding to describe the memory arrangement to the GPU
+ ==> Added functions for beginning and ending the command buffer
+ ==> Added function for submittimg command buffer to the queue (still don't fully understand it)
+ 
 */
