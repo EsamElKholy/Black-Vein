@@ -164,4 +164,26 @@
  ==> Added functions for beginning and ending the command buffer
  ==> Added function for submittimg command buffer to the queue (still don't fully understand it)
  
+
+
+// Day 7
+
+ ==> create pipeline
+ ==> graphics pipeline consists of:
+ ==>	- Shader stages
+ ==>	- Pipeline Layout
+ ==>	- Render Pass
+ ==>	- Fixed-Function stages
+ ==> The fixed-function stages consist of:
+ ==>	- Dynamic states: states that can be changed by command buffer commands(here we have dynamic viewport and scissor)
+ ==>	- Pipeline vertex input state: where we connect the previosly described vertex input binding
+ ==>    - Pipeline vertex input assembly state: where we describe how we want the geometry drawn
+ ==>	- Pipeline rasterization state: configure rasterization operations (i.e: culling, frontface, ..etc)
+ ==>    - Pipeline color blend state: we don't use any blending here but we define some default values anyway
+ ==>    - Pipeline viewport state: configure the viewport and scissor
+ ==>    - Pipeline depth stencil state: configure the depth and stencil operations
+ ==>    - Pipeline multisample state: we don't use multisample operations here but we put some default values anyway
+ ==> after filling in all of the state structs we put them all in the graphics pipeline info struct 
+ ==> finally we create the pipeline 
+
 */

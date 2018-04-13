@@ -60,6 +60,7 @@ struct VK_Func
 	PFN_vkQueueSubmit vkQueueSubmit;
 	PFN_vkWaitForFences vkWaitForFences;
 	PFN_vkDestroyFence vkDestroyFence;
+	PFN_vkCreateGraphicsPipelines vkCreateGraphicsPipelines;
 
 	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
@@ -155,6 +156,8 @@ struct VK_Data
 
 	VkVertexInputBindingDescription VertexInputBinding;
 	VkVertexInputAttributeDescription VertexInputAttributes[2];
+
+	VkPipeline Pipeline;
 };
 
 static VK_Func Vulkan_Functions;
@@ -1468,6 +1471,7 @@ VkResult InitFrameBuffer()
 	VkFramebufferCreateInfo frameBufferInfo = {};
 	frameBufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 	frameBufferInfo.renderPass = Vulkan_Data.RenderPass;
+	frameBufferInfo.attachmentCount = 2;
 	frameBufferInfo.pAttachments = attachments;
 	frameBufferInfo.width = Vulkan_Data.Width;
 	frameBufferInfo.height = Vulkan_Data.Height;
@@ -1556,8 +1560,8 @@ VkResult InitVertexBuffer()
 		return res;
 	}
 
-	uint8_t *data = NULL;
-	res = Vulkan_Functions.vkMapMemory(Vulkan_Data.Device, Vulkan_Data.VertexBuffer.Memory, 0, memReq.size, 0, (void**)data);
+	uint8_t *data;
+	res = Vulkan_Functions.vkMapMemory(Vulkan_Data.Device, Vulkan_Data.VertexBuffer.Memory, 0, memReq.size, 0, (void**)&data);
 
 	if (res != VK_SUCCESS)
 	{
@@ -1595,7 +1599,7 @@ VkResult InitVertexBuffer()
 
 	// TODO(KAI): - Check if I have to do these stuff here instead of mainloop
 	//			  - If this has to be done here then write a description for it at the top of the function and in the progress log
-	VkDeviceSize deviceSize[1] = { 0 };
+	/*VkDeviceSize deviceSize[1] = { 0 };
 
 	VkClearValue clearValues[2];
 	clearValues[0].color.float32[0] = 0.2f;
@@ -1647,6 +1651,138 @@ VkResult InitVertexBuffer()
 											deviceSize);
 
 	Vulkan_Functions.vkCmdEndRenderPass(Vulkan_Data.CommandBuffer);
+*/
+	return res;
+}
+
+///*NOTE(KAI)*///
+/// To create a pipeline we need to fill in these structs:
+/// 1- Dynamic states
+/// 2- Vertex input state
+/// 3- Input assembly state
+/// 4- Rasterization state
+/// 5- Color blend state (it needs color attachment state)
+/// 6- Viewport state
+/// 7- Depth and stencil state
+/// 8- Multisample state
+/// 9- Pipeline info struct
+VkResult InitPipeline() 
+{
+	VkDynamicState enabledDynamicStates[VK_DYNAMIC_STATE_RANGE_SIZE];
+	memset(enabledDynamicStates, 0, sizeof(enabledDynamicStates));
+	
+	VkPipelineDynamicStateCreateInfo dynamicStateInfo = {};
+	dynamicStateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicStateInfo.pDynamicStates = enabledDynamicStates;
+	dynamicStateInfo.dynamicStateCount = 0;
+
+	VkPipelineVertexInputStateCreateInfo vertInputState = {};
+	vertInputState.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	vertInputState.vertexAttributeDescriptionCount = 2;
+	vertInputState.pVertexAttributeDescriptions = Vulkan_Data.VertexInputAttributes;
+	vertInputState.vertexBindingDescriptionCount = 1;
+	vertInputState.pVertexBindingDescriptions = &Vulkan_Data.VertexInputBinding;
+
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = {};
+	inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+	inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+	VkPipelineRasterizationStateCreateInfo rasterizationState = {};
+	rasterizationState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	rasterizationState.depthClampEnable = VK_FALSE;
+	rasterizationState.rasterizerDiscardEnable = VK_FALSE;
+	rasterizationState.depthBiasEnable = VK_FALSE;
+	rasterizationState.lineWidth = 1.0f;
+
+	VkPipelineColorBlendAttachmentState attachmentStates[1];
+	attachmentStates[0] = {};
+	attachmentStates[0].colorWriteMask = 0xf;
+	attachmentStates[0].blendEnable = VK_FALSE;
+	attachmentStates[0].alphaBlendOp = VK_BLEND_OP_ADD;
+	attachmentStates[0].colorBlendOp = VK_BLEND_OP_ADD;
+	attachmentStates[0].srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+	attachmentStates[0].dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+	attachmentStates[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	attachmentStates[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+
+	VkPipelineColorBlendStateCreateInfo colorBlendState = {};
+	colorBlendState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	colorBlendState.attachmentCount = 1;
+	colorBlendState.pAttachments = attachmentStates;
+	colorBlendState.logicOpEnable = VK_FALSE;
+	colorBlendState.logicOp = VK_LOGIC_OP_NO_OP;
+	colorBlendState.blendConstants[0] = 1.0f;
+	colorBlendState.blendConstants[1] = 1.0f;
+	colorBlendState.blendConstants[2] = 1.0f;
+	colorBlendState.blendConstants[3] = 1.0f;
+
+	VkPipelineViewportStateCreateInfo viewportState = {};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.scissorCount = 1;
+	enabledDynamicStates[dynamicStateInfo.dynamicStateCount++] = VK_DYNAMIC_STATE_VIEWPORT;
+	enabledDynamicStates[dynamicStateInfo.dynamicStateCount++] = VK_DYNAMIC_STATE_SCISSOR;
+	viewportState.pScissors = 0;
+	viewportState.pViewports = 0;
+
+	VkPipelineDepthStencilStateCreateInfo depthStencilState = {};
+	depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencilState.depthTestEnable = VK_TRUE;
+	depthStencilState.depthWriteEnable = VK_TRUE;
+	depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+	depthStencilState.depthBoundsTestEnable = VK_FALSE;
+	depthStencilState.minDepthBounds = 0;
+	depthStencilState.maxDepthBounds = 0;
+	depthStencilState.stencilTestEnable = VK_FALSE;
+	depthStencilState.back.failOp = VK_STENCIL_OP_KEEP;
+	depthStencilState.back.passOp = VK_STENCIL_OP_KEEP;
+	depthStencilState.back.compareOp = VK_COMPARE_OP_ALWAYS;
+	depthStencilState.back.compareMask = 0;
+	depthStencilState.back.reference = 0;
+	depthStencilState.back.depthFailOp = VK_STENCIL_OP_KEEP;
+	depthStencilState.back.writeMask = 0;
+	depthStencilState.front = depthStencilState.back;
+
+	VkPipelineMultisampleStateCreateInfo multisampleState = {};
+	multisampleState.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisampleState.pSampleMask = NULL;
+	multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisampleState.sampleShadingEnable = VK_FALSE;
+	multisampleState.alphaToCoverageEnable = VK_FALSE;
+	multisampleState.alphaToOneEnable = VK_FALSE;
+	multisampleState.minSampleShading = 0.0f;
+
+	VkGraphicsPipelineCreateInfo pipelineInfo = {};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipelineInfo.layout = Vulkan_Data.PipelineLayout;
+	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+	pipelineInfo.basePipelineIndex = 0;
+	pipelineInfo.pVertexInputState = &vertInputState;
+	pipelineInfo.pInputAssemblyState = &inputAssemblyState;
+	pipelineInfo.pRasterizationState = &rasterizationState;
+	pipelineInfo.pColorBlendState = &colorBlendState;
+	pipelineInfo.pTessellationState = NULL;
+	pipelineInfo.pMultisampleState = &multisampleState;
+	pipelineInfo.pDynamicState = &dynamicStateInfo;
+	pipelineInfo.pViewportState = &viewportState;
+	pipelineInfo.pDepthStencilState = &depthStencilState;
+	pipelineInfo.stageCount = 2;
+	pipelineInfo.pStages = Vulkan_Data.ShaderStages;
+	pipelineInfo.renderPass = Vulkan_Data.RenderPass;
+	pipelineInfo.subpass = 0;
+
+	VkResult res = Vulkan_Functions.vkCreateGraphicsPipelines(Vulkan_Data.Device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &Vulkan_Data.Pipeline);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create pipeline\n");
+
+		return res;
+	}
 
 	return res;
 }
@@ -1721,6 +1857,7 @@ int InitVulkan()
 	Vulkan_Functions.vkQueueSubmit = (PFN_vkQueueSubmit)GetFunctionPointer(Vulkan_Data.Instance, "vkQueueSubmit");
 	Vulkan_Functions.vkWaitForFences = (PFN_vkWaitForFences)GetFunctionPointer(Vulkan_Data.Instance, "vkWaitForFences");
 	Vulkan_Functions.vkDestroyFence = (PFN_vkDestroyFence)GetFunctionPointer(Vulkan_Data.Instance, "vkDestroyFence");
+	Vulkan_Functions.vkCreateGraphicsPipelines = (PFN_vkCreateGraphicsPipelines)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateGraphicsPipelines");
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
@@ -1813,6 +1950,13 @@ int InitVulkan()
 		return NULL;
 	}
 
+	if (InitPipeline() != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create pipeline\n");
+
+		return NULL;
+	}
+
 	return 1;
 }
 
@@ -1834,21 +1978,24 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR cmdLine
 	windowClass.lpszClassName = "VulkanTest";
 	windowClass.lpfnWndProc = WindowCallBack;
 
-	bool isRunning = false;	
-
-	Vulkan_Data.Width = 1280;
-	Vulkan_Data.Height = 720;
+	bool isRunning = false;		
 
 	if (RegisterClass(&windowClass))
 	{
+		RECT newSize = {};
+		newSize.top = newSize.left = 0;
+		newSize.right = 1280;
+		newSize.bottom = 720;
+		AdjustWindowRect(&newSize, WS_OVERLAPPEDWINDOW | WS_VISIBLE, false);
+		
 		Vulkan_Data.Window = CreateWindowEx(NULL
 			, windowClass.lpszClassName
 			, "Vulkan Test"
 			, WS_OVERLAPPEDWINDOW | WS_VISIBLE
 			, CW_USEDEFAULT
 			, CW_USEDEFAULT
-			, Vulkan_Data.Width
-			, Vulkan_Data.Height
+			, newSize.right - newSize.left
+			, newSize.bottom - newSize.top
 			, NULL
 			, NULL
 			, hInstance
@@ -1856,6 +2003,9 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR cmdLine
 
 		if (Vulkan_Data.Window)
 		{
+			Vulkan_Data.Width = 1280;
+			Vulkan_Data.Height = 720;
+
 			if (!InitVulkan())
 			{
 				ExitOnError("Failed to initialize vulkan\n");
