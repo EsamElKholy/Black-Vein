@@ -103,13 +103,10 @@
  ==> image attachments must be prepared before used
  ==> the preparation involves image layout transition from their initial state to an optimal state to use in the render pass
  ==> layout refers to how the texels are mapped from grid coordinates to offset in the memory
- ==> /// To create render pass we need:
- ==> ///		1- Create a semaphore for aquiring an image from the swapchain and prepare it for the render pass
-					- a semaphore is normally used to hold back the rendering operation until the image is available
- ==> ///		2- Aquiring the image
- ==> ///		3- Prepare color and depth attachment by specifying the layout transition
- ==> ///		4- Describe the render subpass
- ==> ///		5- Create the render pass
+ ==> /// To create render pass we need: 
+ ==> ///		1- Prepare color and depth attachment by specifying the layout transition
+ ==> ///		2- Describe the render subpass
+ ==> ///		3- Create the render pass
 
  ==> created shader
  ==> /// To create a shader we need:
@@ -186,4 +183,26 @@
  ==> after filling in all of the state structs we put them all in the graphics pipeline info struct 
  ==> finally we create the pipeline 
 
+ ==> finally finished drawing the cube
+ ==> /// To draw the cube we need to:
+ ==> ///		1- Create a semaphore for aquiring an image from the swapchain and prepare it for the render pass
+ ==>					- a semaphore is normally used to hold back the rendering operation until the image is available
+ ==> ///		2- Acquiring the image
+ ==> ///		3- Define color and depth clear values
+ ==> ///		4- Begin recording commands
+ ==> ///		5- Bind the pipeline
+ ==> ///		6- Bind descriptor sets
+ ==> ///		7- Bind vertex buffer
+ ==> ///		8- Set viewport and scissors
+ ==> ///		9- Draw vertices
+ ==> ///		10- End Renderpass
+ ==> ///		11- End command buffer
+ ==> ///		12- Create fence to tell when the GPU is done
+ ==> ///		13- Submit command buffer to queue
+ ==> ///		14- Wait for the command buffer to finish
+ ==> ///		15- Present the image to display  
+
+
+
+ 
 */

@@ -1194,6 +1194,7 @@ namespace Cinder
 			mat4f Rotation(vec3f &forward, vec3f &right, vec3f &up);
 
 			mat4f LookAt(vec3f eye, vec3f target, vec3f up);
+			mat4f LookAt2(vec3f eye, vec3f target, vec3f up);
 			mat4f Orthographic(float right, float left, float top, float bottom, float near, float far);
 			mat4f Orthographic(float width, float height, float near, float far);
 			mat4f Perspective(float fieldOfView, float width, float height, float near, float far);

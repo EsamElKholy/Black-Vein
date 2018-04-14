@@ -61,10 +61,14 @@ struct VK_Func
 	PFN_vkWaitForFences vkWaitForFences;
 	PFN_vkDestroyFence vkDestroyFence;
 	PFN_vkCreateGraphicsPipelines vkCreateGraphicsPipelines;
+	PFN_vkCmdBindPipeline vkCmdBindPipeline;
+	PFN_vkCmdBindDescriptorSets vkCmdBindDescriptorSets;
+	PFN_vkCmdSetViewport vkCmdSetViewport;
+	PFN_vkCmdSetScissor vkCmdSetScissor;
+	PFN_vkCmdDraw vkCmdDraw;
+	PFN_vkQueuePresentKHR vkQueuePresentKHR;
 
-	PFN_vkDestroyDevice vkDestroyDevice;
 	PFN_vkGetDeviceQueue vkGetDeviceQueue;
-	PFN_vkQueueWaitIdle vkQueueWaitIdle;
 };
 
 struct SwapChainBuffer 
@@ -158,6 +162,9 @@ struct VK_Data
 	VkVertexInputAttributeDescription VertexInputAttributes[2];
 
 	VkPipeline Pipeline;
+
+	VkViewport Viewport;
+	VkRect2D Scissors;
 };
 
 static VK_Func Vulkan_Functions;
@@ -365,6 +372,28 @@ bool GLSLtoSPV(const VkShaderStageFlagBits shader_type, const char *pshader, std
 ///
 ///
 
+void InitViewport(VK_Data &data) 
+{
+	data.Viewport.width = (float)data.Width;
+	data.Viewport.height = (float)data.Height;
+	data.Viewport.x = 0;
+	data.Viewport.y = 0;
+	data.Viewport.minDepth = 0.0f;
+	data.Viewport.maxDepth = 1.0f;
+
+	Vulkan_Functions.vkCmdSetViewport(data.CommandBuffer, 0, 1, &data.Viewport);
+}
+
+void InitScissors(VK_Data &data)
+{
+	data.Scissors.extent.width = data.Width;
+	data.Scissors.extent.height = data.Height;
+	data.Scissors.offset.x = 0;
+	data.Scissors.offset.y = 0;
+
+	Vulkan_Functions.vkCmdSetScissor(data.CommandBuffer, 0, 1, &data.Scissors);
+}
+
 PFN_vkVoidFunction GetFunctionPointer(VkInstance instance, char *name)	
 {
 	PFN_vkVoidFunction result = 0;
@@ -553,50 +582,13 @@ void EndCommandBuffer(VK_Data &data)
 	}
 }
 
-// TODO(KAI): Study this function carefully and write a description for it here and in the progress log
-void SubmitCommandBufferToQueue(VK_Data &data)
-{
-	VkCommandBuffer cmdBuffers[] = { Vulkan_Data.CommandBuffer };
-	VkFence drawFence = {};
-	VkFenceCreateInfo fenceInfo = {};
-	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-
-	VkResult res = Vulkan_Functions.vkCreateFence(Vulkan_Data.Device, &fenceInfo, NULL, &drawFence);
-
-	if (res != VK_SUCCESS)
-	{
-		ExitOnError("Failed to create fence\n");
-	}
-
-	VkPipelineStageFlags pipelineStageFlags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-	VkSubmitInfo submitInfo[1] = {};
-	submitInfo[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo[0].pWaitDstStageMask = &pipelineStageFlags;
-	submitInfo[0].commandBufferCount = 1;
-	submitInfo[0].pCommandBuffers = cmdBuffers;
-
-	res = Vulkan_Functions.vkQueueSubmit(Vulkan_Data.GraphicsQueue, 1, submitInfo, drawFence);
-
-	if (res != VK_SUCCESS)
-	{
-		ExitOnError("Failed to submit to queue\n");
-	}
-
-	do
-	{
-		res = Vulkan_Functions.vkWaitForFences(Vulkan_Data.Device, 1, &drawFence, VK_TRUE, FENCE_TIMEOUT);
-	} while (res == VK_TIMEOUT);
-
-	Vulkan_Functions.vkDestroyFence(Vulkan_Data.Device, drawFence, NULL);
-}
-
 VkResult InitSurface() 
 {
 	VkWin32SurfaceCreateInfoKHR surfaceInfo = {};
 
 	surfaceInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 	surfaceInfo.hwnd = Vulkan_Data.Window;
+	surfaceInfo.hinstance = GetModuleHandle(NULL);
 
 	VkResult result = Vulkan_Functions.vkCreateWin32SurfaceKHR(Vulkan_Data.Instance, &surfaceInfo, NULL, &Vulkan_Data.Surface);
 
@@ -668,13 +660,24 @@ VkResult InitSwapChain()
 			}
 		}
 
+		Vulkan_Functions.vkGetDeviceQueue(Vulkan_Data.Device, Vulkan_Data.GraphicsQueueFamilyIndex, 0, &Vulkan_Data.GraphicsQueue);
+		
+		if (Vulkan_Data.PresentQueueFamilyIndex == Vulkan_Data.GraphicsQueueFamilyIndex)
+		{
+			Vulkan_Data.PresentQueue = Vulkan_Data.GraphicsQueue;
+		}
+		else
+		{
+			Vulkan_Functions.vkGetDeviceQueue(Vulkan_Data.Device, Vulkan_Data.PresentQueueFamilyIndex, 0, &Vulkan_Data.PresentQueue);
+		}
+
 		free(supportPresent);
 
 		if (Vulkan_Data.GraphicsQueueFamilyIndex == UINT32_MAX || Vulkan_Data.PresentQueueFamilyIndex == UINT32_MAX)
 		{
 			ExitOnError("Couldn't find either a suitable graphics queue or present queue or a queue with both capabilities\n");
 
-			return VkResult::VK_ERROR_VALIDATION_FAILED_EXT;
+			return VK_INCOMPLETE;
 		}
 	}
 
@@ -692,7 +695,7 @@ VkResult InitSwapChain()
 		{
 			ExitOnError("Failed to get format count\n");
 
-			return VkResult::VK_ERROR_FORMAT_NOT_SUPPORTED;
+			return res;
 		}
 
 		VkSurfaceFormatKHR *formats = (VkSurfaceFormatKHR*)malloc(formatCount * sizeof(VkSurfaceFormatKHR));
@@ -705,13 +708,13 @@ VkResult InitSwapChain()
 		{
 			ExitOnError("Failed to get format count\n");
 
-			return VkResult::VK_ERROR_FORMAT_NOT_SUPPORTED;
+			return res;
 		}
 		else if (formatCount < 1)
 		{
 			ExitOnError("Failed to get format count\n");
 
-			return VkResult::VK_ERROR_FORMAT_NOT_SUPPORTED;
+			return res;
 		}
 
 		if (formatCount == 1 && formats[0].format == VK_FORMAT_UNDEFINED)
@@ -785,22 +788,22 @@ VkResult InitSwapChain()
 			swapchainExtent.width = Vulkan_Data.Width;
 			swapchainExtent.height = Vulkan_Data.Height;
 
-			if (swapchainExtent.width < surfaceCapabilities.currentExtent.width)
+			if (swapchainExtent.width < surfaceCapabilities.minImageExtent.width)
 			{
-				swapchainExtent.width = surfaceCapabilities.currentExtent.width;
+				swapchainExtent.width = surfaceCapabilities.minImageExtent.width;
 			}
-			else if (swapchainExtent.width > surfaceCapabilities.currentExtent.width)
+			else if (swapchainExtent.width > surfaceCapabilities.maxImageExtent.width)
 			{
-				swapchainExtent.width = surfaceCapabilities.currentExtent.width;
+				swapchainExtent.width = surfaceCapabilities.maxImageExtent.width;
 			}
 
-			if (swapchainExtent.height < surfaceCapabilities.currentExtent.height)
+			if (swapchainExtent.height < surfaceCapabilities.minImageExtent.height)
 			{
-				swapchainExtent.height = surfaceCapabilities.currentExtent.height;
+				swapchainExtent.height = surfaceCapabilities.minImageExtent.height;
 			}
-			else if (swapchainExtent.height > surfaceCapabilities.currentExtent.height)
+			else if (swapchainExtent.height > surfaceCapabilities.maxImageExtent.height)
 			{
-				swapchainExtent.height = surfaceCapabilities.currentExtent.height;
+				swapchainExtent.height = surfaceCapabilities.maxImageExtent.height;
 			}
 		}
 		else
@@ -883,8 +886,7 @@ VkResult InitSwapChain()
 
 			return VkResult::VK_INCOMPLETE;
 		}
-
-
+		
 		res = Vulkan_Functions.vkGetSwapchainImagesKHR(Vulkan_Data.Device, Vulkan_Data.SwapChain, &Vulkan_Data.SwapChainImageCount, NULL);
 
 		if (res != VK_SUCCESS)
@@ -904,21 +906,13 @@ VkResult InitSwapChain()
 
 			return VkResult::VK_INCOMPLETE;
 		}
-
-		Vulkan_Data.Buffers.resize(Vulkan_Data.SwapChainImageCount);
-
-		for (size_t i = 0; i < Vulkan_Data.SwapChainImageCount; i++)
-		{
-			Vulkan_Data.Buffers[i].Image = images[i];
-		}
-
-		free(images);
+		
 
 		for (size_t i = 0; i < Vulkan_Data.SwapChainImageCount; i++)
 		{
+			SwapChainBuffer buff = {};
 			VkImageViewCreateInfo imageInfo = {};
 			imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			imageInfo.image = Vulkan_Data.Buffers[i].Image;
 			imageInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 			imageInfo.format = Vulkan_Data.Format;
 			imageInfo.components.r = VK_COMPONENT_SWIZZLE_R;
@@ -931,7 +925,12 @@ VkResult InitSwapChain()
 			imageInfo.subresourceRange.baseArrayLayer = 0;
 			imageInfo.subresourceRange.layerCount = 1;
 
-			res = Vulkan_Functions.vkCreateImageView(Vulkan_Data.Device, &imageInfo, NULL, &Vulkan_Data.Buffers[i].View);
+			buff.Image = images[i];
+			imageInfo.image = buff.Image;
+
+			res = Vulkan_Functions.vkCreateImageView(Vulkan_Data.Device, &imageInfo, NULL, &buff.View);
+
+			Vulkan_Data.Buffers.push_back(buff);
 
 			if (res != VK_SUCCESS)
 			{
@@ -940,7 +939,11 @@ VkResult InitSwapChain()
 				return VkResult::VK_INCOMPLETE;
 			}
 		}
+		
+		free(images);
+		Vulkan_Data.CurrentBuffer = 0;
 	}	
+
 
 	return res;
 }
@@ -1068,20 +1071,21 @@ VkResult InitDepthBuffer()
 }
 
 void CalculateMVP(TransformMatrices &transform) 
-{
+{	
 	// TODO(KAI): Check if any of these need to be transposed
-	transform.ProjectionMat = Mat4::Perspective(45.0f, 1.0f, 1.0f, 0.1f, 1000.0f);
-	transform.ViewMat = Mat4::LookAt(vec3f(-5, 3, -10), vec3f(), vec3f(0, -1, 0));
-	transform.ModelMat = mat4f();
+	transform.ProjectionMat = Mat4::Perspective(45.0f, 1, 1, 0.1f, 100.0f);
+	transform.ViewMat = Mat4::LookAt(vec3f(0, 0, 10), vec3f(0, 0, -1) + vec3f(0, 0, 10), vec3f(0, -1, 0));
+	mat4f trans = Mat4::Translation(vec3f(0, 0, 10) * -1.0f);
+	transform.ViewMat = trans * transform.ViewMat;
+	transform.ModelMat = Mat4::Rotation(vec3f(15, -30, 0));
 
 	// NOTE(KAI): https://matthewwellings.com/blog/the-new-vulkan-coordinate-system/
-	transform.CorrectionMat = mat4f();
-	transform.CorrectionMat[0] = vec4f(1,  0,    0, 0);
-	transform.CorrectionMat[1] = vec4f(0, -1,    0, 0);
-	transform.CorrectionMat[2] = vec4f(0,  0, 0.5f, 0);
-	transform.CorrectionMat[3] = vec4f(0,  0, 0.5f, 1);
-
-	transform.MVP = transform.CorrectionMat * transform.ProjectionMat * transform.ViewMat * transform.ModelMat;
+	transform.CorrectionMat.Elements_2D[0][0] = 1; transform.CorrectionMat.Elements_2D[0][1] = 0;  transform.CorrectionMat.Elements_2D[0][2] = 0;    transform.CorrectionMat.Elements_2D[0][3] = 0;
+	transform.CorrectionMat.Elements_2D[1][0] = 0; transform.CorrectionMat.Elements_2D[1][1] = -1; transform.CorrectionMat.Elements_2D[1][2] = 0;    transform.CorrectionMat.Elements_2D[1][3] = 0;
+	transform.CorrectionMat.Elements_2D[2][0] = 0; transform.CorrectionMat.Elements_2D[2][1] = 0;  transform.CorrectionMat.Elements_2D[2][2] = 0.5f; transform.CorrectionMat.Elements_2D[2][3] = 0;
+	transform.CorrectionMat.Elements_2D[3][0] = 0; transform.CorrectionMat.Elements_2D[3][1] = 0;  transform.CorrectionMat.Elements_2D[3][2] = 0.5f; transform.CorrectionMat.Elements_2D[3][3] = 1;
+	
+	transform.MVP =  transform.ModelMat * transform.ViewMat * transform.ProjectionMat * transform.CorrectionMat;
 }
 
 ///*NOTE(KAI)*///
@@ -1281,40 +1285,11 @@ VkResult InitDescriptorSet()
 
 ///*NOTE(KAI)*///
 /// To create render pass we need:
-/// 1- Create a semaphore for aquiring an image from the swapchain and prepare it for the render pass
-/// 2- Aquiring the image
-/// 3- Prepare color and depth attachment by specifying the layout transition
-/// 4- Describe the render subpass
-/// 5- Create the render pass
+/// 1- Prepare color and depth attachment by specifying the layout transition
+/// 2- Describe the render subpass
+/// 3- Create the render pass
 VkResult InitRenderPass() 
 {
-	VkSemaphore imageAquiredSemaphore;
-	VkSemaphoreCreateInfo semaphoreInfo = {};
-	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-	
-	VkResult res = Vulkan_Functions.vkCreateSemaphore(Vulkan_Data.Device, &semaphoreInfo, NULL, &imageAquiredSemaphore);
-
-	if (res != VK_SUCCESS)
-	{
-		ExitOnError("Failed to create semaphore \n");
-
-		return VkResult::VK_INCOMPLETE;
-	}
-
-	res = Vulkan_Functions.vkAcquireNextImageKHR(Vulkan_Data.Device
-												, Vulkan_Data.SwapChain
-												, UINT64_MAX
-												, imageAquiredSemaphore
-												, VK_NULL_HANDLE
-												, &Vulkan_Data.CurrentBuffer);
-
-	if (res != VK_SUCCESS)
-	{
-		ExitOnError("Failed to aquire the swapchain image\n");
-
-		return VkResult::VK_INCOMPLETE;
-	}
-
 	VkAttachmentDescription attachments[2];
 	attachments[0] = {};
 	attachments[0].format = Vulkan_Data.Format;
@@ -1357,7 +1332,7 @@ VkResult InitRenderPass()
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
 
-	res = Vulkan_Functions.vkCreateRenderPass(Vulkan_Data.Device, &renderPassInfo, NULL, &Vulkan_Data.RenderPass);
+	VkResult res = Vulkan_Functions.vkCreateRenderPass(Vulkan_Data.Device, &renderPassInfo, NULL, &Vulkan_Data.RenderPass);
 
 	if (res != VK_SUCCESS)
 	{
@@ -1597,61 +1572,6 @@ VkResult InitVertexBuffer()
 	Vulkan_Data.VertexInputAttributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
 	Vulkan_Data.VertexInputAttributes[1].offset = 16;
 
-	// TODO(KAI): - Check if I have to do these stuff here instead of mainloop
-	//			  - If this has to be done here then write a description for it at the top of the function and in the progress log
-	/*VkDeviceSize deviceSize[1] = { 0 };
-
-	VkClearValue clearValues[2];
-	clearValues[0].color.float32[0] = 0.2f;
-	clearValues[0].color.float32[1] = 0.2f;
-	clearValues[0].color.float32[2] = 0.2f;
-	clearValues[0].color.float32[3] = 0.2f;
-	clearValues[1].depthStencil.depth = 1.0f;
-	clearValues[1].depthStencil.stencil = 0.0f;
-	
-	VkSemaphore imageAquiredSemaphore = {};
-	VkSemaphoreCreateInfo semaphoreInfo = {};
-	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-	
-	res = Vulkan_Functions.vkCreateSemaphore(Vulkan_Data.Device, &semaphoreInfo, NULL, &imageAquiredSemaphore);
-
-	if (res != VK_SUCCESS)
-	{
-		ExitOnError("Failed to create semaphore\n");
-
-		return res;
-	}
-
-	res = Vulkan_Functions.vkAcquireNextImageKHR(Vulkan_Data.Device, Vulkan_Data.SwapChain, UINT64_MAX, imageAquiredSemaphore, VK_NULL_HANDLE, &Vulkan_Data.CurrentBuffer);
-
-	if (res != VK_SUCCESS)
-	{
-		ExitOnError("Failed to get the next image from the swapchain\n");
-
-		return res;
-	}
-
-	VkRenderPassBeginInfo renderInfo = {};
-	renderInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderInfo.renderPass = Vulkan_Data.RenderPass;
-	renderInfo.framebuffer = Vulkan_Data.FrameBuffers[Vulkan_Data.CurrentBuffer];
-	renderInfo.renderArea.offset.x = 0;
-	renderInfo.renderArea.offset.x = 0;
-	renderInfo.renderArea.extent.width = Vulkan_Data.Width;
-	renderInfo.renderArea.extent.height = Vulkan_Data.Height;
-	renderInfo.clearValueCount = 2;
-	renderInfo.pClearValues = clearValues;
-
-	Vulkan_Functions.vkCmdBeginRenderPass(Vulkan_Data.CommandBuffer, &renderInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-	Vulkan_Functions.vkCmdBindVertexBuffers(Vulkan_Data.CommandBuffer, 
-											0, 
-											1, 
-											&Vulkan_Data.VertexBuffer.Buffer, 
-											deviceSize);
-
-	Vulkan_Functions.vkCmdEndRenderPass(Vulkan_Data.CommandBuffer);
-*/
 	return res;
 }
 
@@ -1787,6 +1707,139 @@ VkResult InitPipeline()
 	return res;
 }
 
+///*NOTE(KAI)*///
+/// To draw the cube we need to:
+/// 1- 1- Create a semaphore for aquiring an image from the swapchain and prepare it for the render pass
+/// 2- Acquiring the image
+/// 3- Define color and depth clear values
+/// 4- Begin recording commands
+/// 5- Bind the pipeline
+/// 6- Bind descriptor sets
+/// 7- Bind vertex buffer
+/// 8- Set viewport and scissors
+/// 9- Draw vertices
+/// 10- End Renderpass
+/// 11- End command buffer
+/// 12- Create fence to tell when the GPU is done
+/// 13- Submit command buffer to queue
+/// 14- Wait for the command buffer to finish
+/// 15- Present the image to display  
+void DrawCube() 
+{	
+	BeginCommandBuffer(Vulkan_Data);
+
+	VkDeviceSize deviceSize[1] = { 0 };
+
+	VkClearValue clearValues[2];
+	clearValues[0].color.float32[0] = 0.0f;
+	clearValues[0].color.float32[1] = 0.0f;
+	clearValues[0].color.float32[2] = 0.0f;
+	clearValues[0].color.float32[3] = 0.0f;
+	clearValues[1].depthStencil.depth = 1.0f;
+	clearValues[1].depthStencil.stencil = 0.0f;
+
+	VkSemaphore imageAquiredSemaphore = {};
+	VkSemaphoreCreateInfo semaphoreInfo = {};
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+	VkResult res = Vulkan_Functions.vkCreateSemaphore(Vulkan_Data.Device, &semaphoreInfo, NULL, &imageAquiredSemaphore);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create semaphore\n");
+	}
+
+	res = Vulkan_Functions.vkAcquireNextImageKHR(Vulkan_Data.Device, Vulkan_Data.SwapChain, UINT64_MAX, imageAquiredSemaphore, VK_NULL_HANDLE, &Vulkan_Data.CurrentBuffer);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to get the next image from the swapchain\n");
+	}
+
+	VkRenderPassBeginInfo renderInfo = {};
+	renderInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderInfo.renderPass = Vulkan_Data.RenderPass;
+	renderInfo.framebuffer = Vulkan_Data.FrameBuffers[Vulkan_Data.CurrentBuffer];
+	renderInfo.renderArea.offset.x = 0;
+	renderInfo.renderArea.offset.y = 0;
+	renderInfo.renderArea.extent.width = Vulkan_Data.Width;
+	renderInfo.renderArea.extent.height = Vulkan_Data.Height;
+	renderInfo.clearValueCount = 2;
+	renderInfo.pClearValues = clearValues;
+
+	Vulkan_Functions.vkCmdBeginRenderPass(Vulkan_Data.CommandBuffer, &renderInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	Vulkan_Functions.vkCmdBindPipeline(Vulkan_Data.CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Vulkan_Data.Pipeline);
+	Vulkan_Functions.vkCmdBindDescriptorSets(Vulkan_Data.CommandBuffer
+											, VK_PIPELINE_BIND_POINT_GRAPHICS
+											, Vulkan_Data.PipelineLayout
+											, 0
+											, NUM_OF_DESCRIPTOR_SETS
+											, Vulkan_Data.DescriptorSets.data()
+											, 0
+											, NULL);
+
+
+	Vulkan_Functions.vkCmdBindVertexBuffers(Vulkan_Data.CommandBuffer,
+											0,
+											1,
+											&Vulkan_Data.VertexBuffer.Buffer,
+											deviceSize);
+
+	InitViewport(Vulkan_Data);
+	InitScissors(Vulkan_Data);
+
+	Vulkan_Functions.vkCmdDraw(Vulkan_Data.CommandBuffer, 12 * 3, 1, 0, 0);
+
+	Vulkan_Functions.vkCmdEndRenderPass(Vulkan_Data.CommandBuffer);
+
+	EndCommandBuffer(Vulkan_Data);
+
+	VkCommandBuffer cmdBuffers[] = { Vulkan_Data.CommandBuffer };
+	VkFence drawFence = {};
+	VkFenceCreateInfo fenceInfo = {};
+	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+	res = Vulkan_Functions.vkCreateFence(Vulkan_Data.Device, &fenceInfo, NULL, &drawFence);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to create fence\n");
+	}
+
+	VkPipelineStageFlags pipelineStageFlags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+	VkSubmitInfo submitInfo[1] = {};
+	submitInfo[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo[0].waitSemaphoreCount = 1;
+	submitInfo[0].pWaitSemaphores = &imageAquiredSemaphore;
+	submitInfo[0].pWaitDstStageMask = &pipelineStageFlags;
+	submitInfo[0].commandBufferCount = 1;
+	submitInfo[0].pCommandBuffers = cmdBuffers;
+
+	res = Vulkan_Functions.vkQueueSubmit(Vulkan_Data.GraphicsQueue, 1, submitInfo, drawFence);
+
+	if (res != VK_SUCCESS)
+	{
+		ExitOnError("Failed to submit to queue\n");
+	}
+
+	VkPresentInfoKHR present = {};
+	present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	present.swapchainCount = 1;
+	present.pSwapchains = &Vulkan_Data.SwapChain;
+	present.pImageIndices = &Vulkan_Data.CurrentBuffer;
+
+	do
+	{
+		res = Vulkan_Functions.vkWaitForFences(Vulkan_Data.Device, 1, &drawFence, VK_TRUE, FENCE_TIMEOUT);
+	} while (res == VK_TIMEOUT);
+
+	//Vulkan_Functions.vkDestroyFence(Vulkan_Data.Device, drawFence, NULL);
+	//
+	Vulkan_Functions.vkQueuePresentKHR(Vulkan_Data.PresentQueue, &present);
+}
+
 int InitVulkan()
 {
 	HMODULE vkLibrary = LoadLibrary("vulkan-1.dll");
@@ -1858,6 +1911,13 @@ int InitVulkan()
 	Vulkan_Functions.vkWaitForFences = (PFN_vkWaitForFences)GetFunctionPointer(Vulkan_Data.Instance, "vkWaitForFences");
 	Vulkan_Functions.vkDestroyFence = (PFN_vkDestroyFence)GetFunctionPointer(Vulkan_Data.Instance, "vkDestroyFence");
 	Vulkan_Functions.vkCreateGraphicsPipelines = (PFN_vkCreateGraphicsPipelines)GetFunctionPointer(Vulkan_Data.Instance, "vkCreateGraphicsPipelines");
+	Vulkan_Functions.vkCmdBindPipeline = (PFN_vkCmdBindPipeline)GetFunctionPointer(Vulkan_Data.Instance, "vkCmdBindPipeline");
+	Vulkan_Functions.vkCmdBindDescriptorSets = (PFN_vkCmdBindDescriptorSets)GetFunctionPointer(Vulkan_Data.Instance, "vkCmdBindDescriptorSets");
+	Vulkan_Functions.vkCmdSetViewport = (PFN_vkCmdSetViewport)GetFunctionPointer(Vulkan_Data.Instance, "vkCmdSetViewport");
+	Vulkan_Functions.vkCmdSetScissor = (PFN_vkCmdSetScissor)GetFunctionPointer(Vulkan_Data.Instance, "vkCmdSetScissor");
+	Vulkan_Functions.vkCmdDraw = (PFN_vkCmdDraw)GetFunctionPointer(Vulkan_Data.Instance, "vkCmdDraw");
+	Vulkan_Functions.vkQueuePresentKHR = (PFN_vkQueuePresentKHR)GetFunctionPointer(Vulkan_Data.Instance, "vkQueuePresentKHR");
+	Vulkan_Functions.vkGetDeviceQueue = (PFN_vkGetDeviceQueue)GetFunctionPointer(Vulkan_Data.Instance, "vkGetDeviceQueue");
 
 	if (CreateVulkanDevice() != VK_SUCCESS)
 	{
@@ -1984,13 +2044,13 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR cmdLine
 	{
 		RECT newSize = {};
 		newSize.top = newSize.left = 0;
-		newSize.right = 1280;
-		newSize.bottom = 720;
-		AdjustWindowRect(&newSize, WS_OVERLAPPEDWINDOW | WS_VISIBLE, false);
+		newSize.right = 800;
+		newSize.bottom = 800;
+		AdjustWindowRect(&newSize, WS_OVERLAPPEDWINDOW, false);
 		
 		Vulkan_Data.Window = CreateWindowEx(NULL
 			, windowClass.lpszClassName
-			, "Vulkan Test"
+			, "Black Vein Engine"
 			, WS_OVERLAPPEDWINDOW | WS_VISIBLE
 			, CW_USEDEFAULT
 			, CW_USEDEFAULT
@@ -1998,13 +2058,15 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR cmdLine
 			, newSize.bottom - newSize.top
 			, NULL
 			, NULL
-			, hInstance
+			, GetModuleHandle(NULL)
 			, NULL);
 
 		if (Vulkan_Data.Window)
 		{
-			Vulkan_Data.Width = 1280;
-			Vulkan_Data.Height = 720;
+			Vulkan_Data.Width = 800;
+			Vulkan_Data.Height = 800;
+			
+			//SetWindowLongPtr(Vulkan_Data.Window, GWLP_USERDATA, (LONG_PTR)&Vulkan_Data);	
 
 			if (!InitVulkan())
 			{
@@ -2012,6 +2074,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR cmdLine
 
 				return 0;
 			}
+
+			DrawCube();
 
 			isRunning = true;
 			while (isRunning)
